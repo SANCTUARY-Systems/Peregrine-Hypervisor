@@ -6,10 +6,10 @@
  * https://opensource.org/licenses/BSD-3-Clause.
  */
 
-#include "hf/ffa.h"
-#include "hf/std.h"
+#include "pg/ffa.h"
+#include "pg/std.h"
 
-#include "vmapi/hf/call.h"
+#include "vmapi/pg/call.h"
 
 #include "test/hftest.h"
 

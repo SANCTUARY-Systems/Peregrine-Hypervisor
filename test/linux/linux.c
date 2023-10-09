@@ -14,8 +14,8 @@
 #include <string.h>
 #include <unistd.h>
 
-#include "hf/dlog.h"
-#include "hf/socket.h"
+#include "pg/dlog.h"
+#include "pg/socket.h"
 
 #include "test/hftest.h"
 #include <sys/socket.h>
@@ -75,10 +75,10 @@ TEST(linux, load_hafnium)
  */
 TEST(linux, socket_echo_hafnium)
 {
-	ffa_vm_id_t vm_id = HF_VM_ID_OFFSET + 1;
+	ffa_vm_id_t vm_id = PG_VM_ID_OFFSET + 1;
 	int port = 10;
 	int socket_id;
-	struct hf_sockaddr addr;
+	struct pg_sockaddr addr;
 	const char send_buf[] = "The quick brown fox jumps over the lazy dogs.";
 	size_t send_len = sizeof(send_buf);
 	char resp_buf[MAX_BUF_SIZE];

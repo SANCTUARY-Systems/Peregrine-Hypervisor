@@ -5,9 +5,6 @@
 # https://opensource.org/licenses/BSD-3-Clause.
 
 declare_args() {
-  # FF-A hooks to be used for the platform, specified as build target.
-  plat_ffa = "//src/arch/aarch64/plat/ffa:absent"
-
   # PSCI hooks to be used for the platform, specified as build target.
   plat_psci = "//src/arch/aarch64/plat/psci:hypervisor"
 
@@ -18,8 +15,6 @@ declare_args() {
 
   # Pseudo random numbers source. Used for pointer authentication.
   plat_prng = "//src/arch/aarch64/plat/prng:absent"
-
-  secure_world = "0"
 
   enable_vhe = "0"
 }

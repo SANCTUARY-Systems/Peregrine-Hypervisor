@@ -6,13 +6,13 @@
  * https://opensource.org/licenses/BSD-3-Clause.
  */
 
-#include "hf/arch/irq.h"
-#include "hf/arch/vm/interrupts.h"
+#include "pg/arch/irq.h"
+#include "pg/arch/vm/interrupts.h"
 
-#include "hf/dlog.h"
-#include "hf/std.h"
+#include "pg/dlog.h"
+#include "pg/std.h"
 
-#include "vmapi/hf/call.h"
+#include "vmapi/pg/call.h"
 
 #include "primary_with_secondary.h"
 #include "test/hftest.h"
@@ -23,7 +23,7 @@ volatile uint32_t irq_counter;
 static void irq(void)
 {
 	/* Clear the interrupt. */
-	hf_interrupt_get();
+	pg_interrupt_get();
 
 	irq_counter++;
 }
@@ -31,7 +31,7 @@ static void irq(void)
 TEST_SERVICE(interruptible_echo)
 {
 	exception_setup(irq, NULL);
-	hf_interrupt_enable(EXTERNAL_INTERRUPT_ID_A, true, INTERRUPT_TYPE_IRQ);
+	pg_interrupt_enable(EXTERNAL_INTERRUPT_ID_A, true, INTERRUPT_TYPE_IRQ);
 	arch_irq_enable();
 
 	EXPECT_EQ(irq_counter, 0);
@@ -46,7 +46,7 @@ TEST_SERVICE(interruptible_echo)
 			 ffa_msg_send_size(res));
 
 		EXPECT_EQ(ffa_rx_release().func, FFA_SUCCESS_32);
-		ffa_msg_send(SERVICE_VM1, HF_PRIMARY_VM_ID,
+		ffa_msg_send(SERVICE_VM1, PG_PRIMARY_VM_ID,
 			     ffa_msg_send_size(res), 0);
 	}
 }
@@ -60,7 +60,7 @@ TEST_SERVICE(interruptible_echo_direct_msg)
 	struct ffa_value res;
 
 	exception_setup(irq, NULL);
-	hf_interrupt_enable(EXTERNAL_INTERRUPT_ID_A, true, INTERRUPT_TYPE_IRQ);
+	pg_interrupt_enable(EXTERNAL_INTERRUPT_ID_A, true, INTERRUPT_TYPE_IRQ);
 	arch_irq_enable();
 
 	res = ffa_msg_wait();
@@ -93,7 +93,7 @@ TEST_SERVICE(interruptible_echo_direct_msg_with_interrupt)
 	struct ffa_value res;
 
 	exception_setup(irq, NULL);
-	hf_interrupt_enable(EXTERNAL_INTERRUPT_ID_A, true, INTERRUPT_TYPE_IRQ);
+	pg_interrupt_enable(EXTERNAL_INTERRUPT_ID_A, true, INTERRUPT_TYPE_IRQ);
 	arch_irq_enable();
 
 	EXPECT_EQ(irq_counter, 0);

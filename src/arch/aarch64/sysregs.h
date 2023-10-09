@@ -8,11 +8,11 @@
 
 #pragma once
 
-#include "hf/arch/types.h"
+#include "pg/arch/types.h"
 
-#include "hf/cpu.h"
+#include "pg/cpu.h"
 
-#include "vmapi/hf/ffa.h"
+#include "vmapi/pg/ffa.h"
 
 #include "msr.h"
 
@@ -630,7 +630,7 @@
 #define ID_AA64MMFR1_EL1_VH_MASK UINT64_C(0xf)
 #define ID_AA64MMFR1_EL1_VH_SUPPORTED UINT64_C(0x1)
 
-uintreg_t get_hcr_el2_value(ffa_vm_id_t vm_id);
+uintreg_t get_hcr_el2_value(uint16_t vm_id);
 
 uintreg_t get_mdcr_el2_value(void);
 

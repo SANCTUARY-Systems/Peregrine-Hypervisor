@@ -9,8 +9,8 @@
 #include <stdalign.h>
 #include <stdint.h>
 
-#include "hf/mm.h"
-#include "hf/std.h"
+#include "pg/mm.h"
+#include "pg/std.h"
 
 #include "test/hftest.h"
 #include "test/hftest_impl.h"

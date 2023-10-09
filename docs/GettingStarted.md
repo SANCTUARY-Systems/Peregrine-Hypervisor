@@ -39,7 +39,7 @@ make PROJECT=<project_name>
 ```
 
 The compiled image can be found under `out/<project>`, for example the QEMU
-image is at `out/reference/qemu_aarch64_clang/hafnium.bin`.
+image is at `out/reference/qemu_aarch64_clang/peregrine.bin`.
 
 ## Running on QEMU
 
@@ -47,7 +47,7 @@ You will need at least version 2.9 for QEMU. The following command line can be
 used to run Hafnium on it:
 
 ```shell
-qemu-system-aarch64 -M virt,gic_version=3 -cpu cortex-a57 -nographic -machine virtualization=true -kernel out/reference/qemu_aarch64_clang/hafnium.bin
+qemu-system-aarch64 -M virt,gic_version=3 -cpu cortex-a57 -nographic -machine virtualization=true -kernel out/reference/qemu_aarch64_clang/peregrine.bin
 ```
 
 Though it is admittedly not very useful because it doesn't have any virtual
@@ -78,7 +78,7 @@ The following command line will run Hafnium, with the RAM disk just created,
 which will then boot into the primary Linux VM:
 
 ```shell
-qemu-system-aarch64 -M virt,gic_version=3 -cpu cortex-a57 -nographic -machine virtualization=true -kernel out/reference/qemu_aarch64_clang/hafnium.bin -initrd initrd.img -append "rdinit=/sbin/init"
+qemu-system-aarch64 -M virt,gic_version=3 -cpu cortex-a57 -nographic -machine virtualization=true -kernel out/reference/qemu_aarch64_clang/peregrine.bin -initrd initrd.img -append "rdinit=/sbin/init"
 ```
 
 ## Running tests

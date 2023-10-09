@@ -6,7 +6,7 @@
  * https://opensource.org/licenses/BSD-3-Clause.
  */
 
-#include "hf/plat/console.h"
+#include "pg/plat/console.h"
 
 #include "test/hftest.h"
 

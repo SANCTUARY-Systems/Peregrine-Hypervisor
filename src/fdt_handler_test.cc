@@ -9,9 +9,9 @@
 #include <gmock/gmock.h>
 
 extern "C" {
-#include "hf/boot_params.h"
-#include "hf/fdt_handler.h"
-#include "hf/mpool.h"
+#include "pg/boot_params.h"
+#include "pg/fdt_handler.h"
+#include "pg/mpool.h"
 }
 
 #include <memory>

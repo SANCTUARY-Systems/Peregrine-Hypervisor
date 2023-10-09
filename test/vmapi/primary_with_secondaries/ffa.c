@@ -6,17 +6,17 @@
  * https://opensource.org/licenses/BSD-3-Clause.
  */
 
-#include "hf/ffa.h"
+#include "pg/ffa.h"
 
 #include <stdint.h>
 
-#include "hf/arch/irq.h"
-#include "hf/arch/vm/interrupts.h"
-#include "hf/arch/vm/timer.h"
+#include "pg/arch/irq.h"
+#include "pg/arch/vm/interrupts.h"
+#include "pg/arch/vm/timer.h"
 
-#include "hf/std.h"
+#include "pg/std.h"
 
-#include "vmapi/hf/call.h"
+#include "vmapi/pg/call.h"
 
 #include "primary_with_secondary.h"
 #include "test/hftest.h"
@@ -42,7 +42,7 @@ TEST(ffa, msg_send)
 	/* Set the payload, init the message header and send the message. */
 	memcpy_s(mb.send, FFA_MSG_PAYLOAD_MAX, message, sizeof(message));
 	EXPECT_EQ(
-		ffa_msg_send(HF_PRIMARY_VM_ID, SERVICE_VM1, sizeof(message), 0)
+		ffa_msg_send(PG_PRIMARY_VM_ID, SERVICE_VM1, sizeof(message), 0)
 			.func,
 		FFA_SUCCESS_32);
 
@@ -78,7 +78,7 @@ TEST(ffa, ffa_invalid_destination_id)
 	SERVICE_SELECT(SERVICE_VM1, "ffa_check", mb.send);
 	/* Set the payload, init the message header and send the message. */
 	memcpy_s(mb.send, FFA_MSG_PAYLOAD_MAX, message, sizeof(message));
-	EXPECT_FFA_ERROR(ffa_msg_send(HF_PRIMARY_VM_ID, -1, sizeof(message), 0),
+	EXPECT_FFA_ERROR(ffa_msg_send(PG_PRIMARY_VM_ID, -1, sizeof(message), 0),
 			 FFA_INVALID_PARAMETERS);
 }
 
@@ -96,7 +96,7 @@ TEST(ffa, ffa_incorrect_length)
 	/* Send the message and compare if truncated. */
 	memcpy_s(mb.send, FFA_MSG_PAYLOAD_MAX, message, sizeof(message));
 	/* Hard code incorrect length. */
-	EXPECT_EQ(ffa_msg_send(HF_PRIMARY_VM_ID, SERVICE_VM1, 16, 0).func,
+	EXPECT_EQ(ffa_msg_send(PG_PRIMARY_VM_ID, SERVICE_VM1, 16, 0).func,
 		  FFA_SUCCESS_32);
 	run_res = ffa_run(SERVICE_VM1, 0);
 	EXPECT_EQ(run_res.func, FFA_YIELD_32);
@@ -113,7 +113,7 @@ TEST(ffa, ffa_large_message)
 	memcpy_s(mb.send, FFA_MSG_PAYLOAD_MAX, message, sizeof(message));
 	/* Send a message that is larger than the mailbox supports (4KB). */
 	EXPECT_FFA_ERROR(
-		ffa_msg_send(HF_PRIMARY_VM_ID, SERVICE_VM1, 4 * 1024 + 1, 0),
+		ffa_msg_send(PG_PRIMARY_VM_ID, SERVICE_VM1, 4 * 1024 + 1, 0),
 		FFA_INVALID_PARAMETERS);
 }
 
@@ -153,7 +153,7 @@ TEST(ffa, ffa_partition_info)
 
 	for (uint16_t index = 0; index < vm_count; ++index) {
 		ffa_vm_id_t vm_id = partitions[index].vm_id;
-		EXPECT_GE(vm_id, (ffa_vm_id_t)HF_PRIMARY_VM_ID);
+		EXPECT_GE(vm_id, (ffa_vm_id_t)PG_PRIMARY_VM_ID);
 		EXPECT_LE(vm_id, (ffa_vm_id_t)SERVICE_VM3);
 
 		/*
@@ -208,7 +208,7 @@ TEST(ffa, ffa_send_direct_message_req_echo)
 	SERVICE_SELECT(SERVICE_VM1, "ffa_direct_message_resp_echo", mb.send);
 	ffa_run(SERVICE_VM1, 0);
 
-	res = ffa_msg_send_direct_req(HF_PRIMARY_VM_ID, SERVICE_VM1, msg[0],
+	res = ffa_msg_send_direct_req(PG_PRIMARY_VM_ID, SERVICE_VM1, msg[0],
 				      msg[1], msg[2], msg[3], msg[4]);
 
 	EXPECT_EQ(res.func, FFA_MSG_SEND_DIRECT_RESP_32);
@@ -235,7 +235,7 @@ TEST(ffa, ffa_send_direct_message_req_disallowed_smc)
 		       mb.send);
 	ffa_run(SERVICE_VM1, 0);
 
-	res = ffa_msg_send_direct_req(HF_PRIMARY_VM_ID, SERVICE_VM1, msg[0],
+	res = ffa_msg_send_direct_req(PG_PRIMARY_VM_ID, SERVICE_VM1, msg[0],
 				      msg[1], msg[2], msg[3], msg[4]);
 
 	EXPECT_EQ(res.func, FFA_MSG_SEND_DIRECT_RESP_32);
@@ -250,7 +250,7 @@ TEST(ffa, ffa_send_direct_message_req_invalid_dst)
 				0x88889999};
 	struct ffa_value res;
 
-	res = ffa_msg_send_direct_req(HF_PRIMARY_VM_ID, HF_PRIMARY_VM_ID,
+	res = ffa_msg_send_direct_req(PG_PRIMARY_VM_ID, PG_PRIMARY_VM_ID,
 				      msg[0], msg[1], msg[2], msg[3], msg[4]);
 
 	EXPECT_FFA_ERROR(res, FFA_INVALID_PARAMETERS);
@@ -267,7 +267,7 @@ TEST(ffa, ffa_send_direct_message_resp_invalid)
 	SERVICE_SELECT(SERVICE_VM1, "ffa_direct_message_resp_echo", mb.send);
 	ffa_run(SERVICE_VM1, 0);
 
-	res = ffa_msg_send_direct_resp(HF_PRIMARY_VM_ID, SERVICE_VM1, 0, 0, 0,
+	res = ffa_msg_send_direct_resp(PG_PRIMARY_VM_ID, SERVICE_VM1, 0, 0, 0,
 				       0, 0);
 	EXPECT_FFA_ERROR(res, FFA_INVALID_PARAMETERS);
 }
@@ -284,7 +284,7 @@ TEST(ffa, ffa_secondary_direct_msg_req_invalid)
 	SERVICE_SELECT(SERVICE_VM1, "ffa_disallowed_direct_msg_req", mb.send);
 	ffa_run(SERVICE_VM1, 0);
 
-	res = ffa_msg_send_direct_req(HF_PRIMARY_VM_ID, SERVICE_VM1, 0, 0, 0, 0,
+	res = ffa_msg_send_direct_req(PG_PRIMARY_VM_ID, SERVICE_VM1, 0, 0, 0, 0,
 				      0);
 	EXPECT_EQ(res.func, FFA_MSG_SEND_DIRECT_RESP_32);
 }
@@ -301,7 +301,7 @@ TEST(ffa, ffa_secondary_direct_msg_resp_invalid)
 	SERVICE_SELECT(SERVICE_VM1, "ffa_disallowed_direct_msg_resp", mb.send);
 	ffa_run(SERVICE_VM1, 0);
 
-	res = ffa_msg_send_direct_req(HF_PRIMARY_VM_ID, SERVICE_VM1, 0, 0, 0, 0,
+	res = ffa_msg_send_direct_req(PG_PRIMARY_VM_ID, SERVICE_VM1, 0, 0, 0, 0,
 				      0);
 	EXPECT_EQ(res.func, FFA_MSG_SEND_DIRECT_RESP_32);
 }
@@ -320,7 +320,7 @@ TEST(ffa, ffa_secondary_spoofed_response)
 		       "ffa_direct_msg_resp_invalid_sender_receiver", mb.send);
 	ffa_run(SERVICE_VM1, 0);
 
-	res = ffa_msg_send_direct_req(HF_PRIMARY_VM_ID, SERVICE_VM1, 0, 0, 0, 0,
+	res = ffa_msg_send_direct_req(PG_PRIMARY_VM_ID, SERVICE_VM1, 0, 0, 0, 0,
 				      0);
 	EXPECT_EQ(res.func, FFA_MSG_SEND_DIRECT_RESP_32);
 }
@@ -340,7 +340,7 @@ TEST(ffa, ffa_secondary_run)
 	EXPECT_EQ(res.func, FFA_MSG_WAIT_32);
 	EXPECT_EQ(res.arg2, FFA_SLEEP_INDEFINITE);
 
-	res = ffa_msg_send_direct_req(HF_PRIMARY_VM_ID, SERVICE_VM1, 1, 0, 0, 0,
+	res = ffa_msg_send_direct_req(PG_PRIMARY_VM_ID, SERVICE_VM1, 1, 0, 0, 0,
 				      0);
 	EXPECT_EQ(res.func, FFA_MSG_SEND_DIRECT_RESP_32);
 	EXPECT_EQ(res.arg3, 2);
@@ -349,7 +349,7 @@ TEST(ffa, ffa_secondary_run)
 	EXPECT_EQ(res.func, FFA_MSG_WAIT_32);
 	EXPECT_EQ(res.arg2, FFA_SLEEP_INDEFINITE);
 
-	res = ffa_msg_send_direct_req(HF_PRIMARY_VM_ID, SERVICE_VM1, 3, 0, 0, 0,
+	res = ffa_msg_send_direct_req(PG_PRIMARY_VM_ID, SERVICE_VM1, 3, 0, 0, 0,
 				      0);
 	EXPECT_EQ(res.func, FFA_MSG_SEND_DIRECT_RESP_32);
 	EXPECT_EQ(res.arg3, 4);

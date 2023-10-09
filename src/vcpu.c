@@ -6,14 +6,14 @@
  * https://opensource.org/licenses/BSD-3-Clause.
  */
 
-#include "hf/vcpu.h"
+#include "pg/vcpu.h"
 
-#include "hf/arch/cpu.h"
+#include "pg/arch/cpu.h"
 
-#include "hf/check.h"
-#include "hf/dlog.h"
-#include "hf/std.h"
-#include "hf/vm.h"
+#include "pg/check.h"
+#include "pg/dlog.h"
+#include "pg/std.h"
+#include "pg/vm.h"
 
 /**
  * Locks the given vCPU and updates `locked` to hold the newly locked vCPU.
@@ -54,14 +54,16 @@ void vcpu_unlock(struct vcpu_locked *locked)
 	locked->vcpu = NULL;
 }
 
-void vcpu_init(struct vcpu *vcpu, struct vm *vm)
+bool vcpu_init(struct vcpu *vcpu, struct vm *vm)
 {
+	//bool assign_error = true;
 	memset_s(vcpu, sizeof(*vcpu), 0, sizeof(*vcpu));
 	sl_init(&vcpu->lock);
 	vcpu->regs_available = true;
 	vcpu->vm = vm;
 	vcpu->state = VCPU_STATE_OFF;
-	vcpu->direct_request_origin_vm_id = HF_INVALID_VM_ID;
+
+	return true;
 }
 
 /**
@@ -74,7 +76,7 @@ void vcpu_on(struct vcpu_locked vcpu, ipaddr_t entry, uintreg_t arg)
 	vcpu.vcpu->state = VCPU_STATE_READY;
 }
 
-ffa_vcpu_index_t vcpu_index(const struct vcpu *vcpu)
+uint16_t vcpu_index(const struct vcpu *vcpu)
 {
 	size_t index = vcpu - vcpu->vm->vcpus;
 
@@ -96,7 +98,9 @@ bool vcpu_is_off(struct vcpu_locked vcpu)
 	case VCPU_STATE_RUNNING:
 	case VCPU_STATE_BLOCKED_MAILBOX:
 	case VCPU_STATE_BLOCKED_INTERRUPT:
+	case VCPU_STATE_PREEMPTED:
 	case VCPU_STATE_ABORTED:
+	default:
 		/*
 		 * Aborted still counts as ON for the purposes of PSCI,
 		 * because according to the PSCI specification (section
@@ -120,7 +124,7 @@ bool vcpu_secondary_reset_and_start(struct vcpu_locked vcpu_locked,
 	struct vm *vm = vcpu_locked.vcpu->vm;
 	bool vcpu_was_off;
 
-	CHECK(vm->id != HF_PRIMARY_VM_ID);
+	CHECK(vm->id != PG_PRIMARY_VM_ID);
 
 	vcpu_was_off = vcpu_is_off(vcpu_locked);
 	if (vcpu_was_off) {

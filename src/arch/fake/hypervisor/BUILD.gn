@@ -3,6 +3,11 @@
 # Use of this source code is governed by a BSD-style
 # license that can be found in the LICENSE file or at
 # https://opensource.org/licenses/BSD-3-Clause.
+import("//build/toolchain/platform.gni")
+
+config("arch_config") {
+}
+
 
 source_set("hypervisor") {
   sources = [
@@ -15,8 +20,12 @@ source_set("hypervisor") {
   ]
 }
 
-source_set("other_world") {
-  sources = [
-    "other_world.c",
+source_set("vm") {
+  deps = [
+      "//src:vm",
   ]
+}
+
+source_set("src_testable") {
+  public_configs = [ "//src/arch/${plat_arch}:arch_config" ]
 }

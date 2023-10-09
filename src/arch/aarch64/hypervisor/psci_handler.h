@@ -10,9 +10,9 @@
 
 #include <stdint.h>
 
-#include "hf/arch/types.h"
+#include "pg/arch/types.h"
 
-#include "hf/cpu.h"
+#include "pg/cpu.h"
 
 bool psci_handler(struct vcpu *vcpu, uint32_t func, uintreg_t arg0,
 		  uintreg_t arg1, uintreg_t arg2, uintreg_t *ret,

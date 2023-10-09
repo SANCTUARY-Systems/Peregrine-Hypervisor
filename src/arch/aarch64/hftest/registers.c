@@ -6,7 +6,7 @@
  * https://opensource.org/licenses/BSD-3-Clause.
  */
 
-#include "hf/arch/vm/registers.h"
+#include "pg/arch/vm/registers.h"
 
 #define read_fp_register(name)                                   \
 	__extension__({                                          \

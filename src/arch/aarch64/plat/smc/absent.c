@@ -6,7 +6,7 @@
  * https://opensource.org/licenses/BSD-3-Clause.
  */
 
-#include "hf/arch/plat/smc.h"
+#include "pg/arch/plat/smc.h"
 
 void plat_smc_post_forward(struct ffa_value args, struct ffa_value *ret)
 {

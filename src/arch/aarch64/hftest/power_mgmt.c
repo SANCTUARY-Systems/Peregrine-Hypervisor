@@ -6,11 +6,11 @@
  * https://opensource.org/licenses/BSD-3-Clause.
  */
 
-#include "hf/arch/vm/power_mgmt.h"
+#include "pg/arch/vm/power_mgmt.h"
 
-#include "hf/static_assert.h"
+#include "pg/static_assert.h"
 
-#include "vmapi/hf/call.h"
+#include "vmapi/pg/call.h"
 
 #include "psci.h"
 #include "smc.h"

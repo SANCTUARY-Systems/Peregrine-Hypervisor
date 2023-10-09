@@ -15,18 +15,14 @@ source_set("pl011") {
     "//src/arch/aarch64:arch",
   ]
 
-  assert(defined(pl011_base_address),
-         "\"pl011_base_address\" must be defined for ${target_name}.")
+  assert(defined(uart_clock),
+         "\"uart_clock\" must be defined for ${target_name}.")
 
-  assert(defined(pl011_clock),
-         "\"pl011_clock\" must be defined for ${target_name}.")
-
-  assert(defined(pl011_baudrate),
-         "\"pl011_baudrate\" must be defined for ${target_name}.")
+  assert(defined(uart_baudrate),
+         "\"uart_baudrate\" must be defined for ${target_name}.")
 
   defines = [
-    "PL011_BASE=${pl011_base_address}",
-    "PL011_CLOCK=${pl011_clock}",
-    "PL011_BAUDRATE=${pl011_baudrate}",
+    "UART_CLOCK=${uart_clock}",
+    "UART_BAUDRATE=${uart_baudrate}",
   ]
 }

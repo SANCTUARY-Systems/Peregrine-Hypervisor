@@ -8,10 +8,10 @@
 
 #include <stdint.h>
 
-#include "hf/mm.h"
+#include "pg/mm.h"
 
-#include "vmapi/hf/call.h"
-#include "vmapi/hf/ffa.h"
+#include "vmapi/pg/call.h"
+#include "vmapi/pg/ffa.h"
 
 #include "test/hftest.h"
 #include "test/vmapi/ffa.h"
@@ -30,8 +30,8 @@ static ffa_memory_handle_t init_and_send(
 	ffa_memory_handle_t handle;
 
 	EXPECT_EQ(ffa_memory_region_init(
-			  mb.send, HF_MAILBOX_SIZE, HF_PRIMARY_VM_ID,
-			  HF_TEE_VM_ID, constituents, constituents_count, 0, 0,
+			  mb.send, PG_MAILBOX_SIZE, PG_PRIMARY_VM_ID,
+			  PG_TEE_VM_ID, constituents, constituents_count, 0, 0,
 			  FFA_DATA_ACCESS_RW,
 			  FFA_INSTRUCTION_ACCESS_NOT_SPECIFIED,
 			  FFA_MEMORY_NORMAL_MEM, FFA_MEMORY_CACHE_WRITE_BACK,
@@ -97,8 +97,8 @@ TEST(trusty, memory_share_fragmented)
 	memset_s(pages, sizeof(pages), 'b', PAGE_SIZE * 2);
 
 	EXPECT_EQ(ffa_memory_region_init(
-			  mb.send, HF_MAILBOX_SIZE, HF_PRIMARY_VM_ID,
-			  HF_TEE_VM_ID, constituents, ARRAY_SIZE(constituents),
+			  mb.send, PG_MAILBOX_SIZE, PG_PRIMARY_VM_ID,
+			  PG_TEE_VM_ID, constituents, ARRAY_SIZE(constituents),
 			  0, 0, FFA_DATA_ACCESS_RW,
 			  FFA_INSTRUCTION_ACCESS_NOT_SPECIFIED,
 			  FFA_MEMORY_NORMAL_MEM, FFA_MEMORY_CACHE_WRITE_BACK,
@@ -114,7 +114,7 @@ TEST(trusty, memory_share_fragmented)
 
 	/* Send second fragment. */
 	EXPECT_EQ(
-		ffa_memory_fragment_init(mb.send, HF_MAILBOX_SIZE,
+		ffa_memory_fragment_init(mb.send, PG_MAILBOX_SIZE,
 					 constituents + 1, 1, &fragment_length),
 		0);
 	ret = ffa_mem_frag_tx(handle, fragment_length);
@@ -217,7 +217,7 @@ TEST(trusty, memory_reclaim_reshare_fragmented)
 	}
 
 	remaining_constituent_count = ffa_memory_region_init(
-		mb.send, HF_MAILBOX_SIZE, HF_PRIMARY_VM_ID, HF_TEE_VM_ID,
+		mb.send, PG_MAILBOX_SIZE, PG_PRIMARY_VM_ID, PG_TEE_VM_ID,
 		constituents, ARRAY_SIZE(constituents), 0, 0,
 		FFA_DATA_ACCESS_RW, FFA_INSTRUCTION_ACCESS_NOT_SPECIFIED,
 		FFA_MEMORY_NORMAL_MEM, FFA_MEMORY_CACHE_WRITE_BACK,
@@ -236,7 +236,7 @@ TEST(trusty, memory_reclaim_reshare_fragmented)
 
 	/* Send the second fragment. */
 	EXPECT_EQ(ffa_memory_fragment_init(
-			  mb.send, HF_MAILBOX_SIZE,
+			  mb.send, PG_MAILBOX_SIZE,
 			  constituents + ARRAY_SIZE(constituents) -
 				  remaining_constituent_count,
 			  remaining_constituent_count, &fragment_length),
@@ -256,7 +256,7 @@ TEST(trusty, memory_reclaim_reshare_fragmented)
 
 	/* Share it again. */
 	remaining_constituent_count = ffa_memory_region_init(
-		mb.send, HF_MAILBOX_SIZE, HF_PRIMARY_VM_ID, HF_TEE_VM_ID,
+		mb.send, PG_MAILBOX_SIZE, PG_PRIMARY_VM_ID, PG_TEE_VM_ID,
 		constituents, ARRAY_SIZE(constituents), 0, 0,
 		FFA_DATA_ACCESS_RW, FFA_INSTRUCTION_ACCESS_NOT_SPECIFIED,
 		FFA_MEMORY_NORMAL_MEM, FFA_MEMORY_CACHE_WRITE_BACK,
@@ -276,7 +276,7 @@ TEST(trusty, memory_reclaim_reshare_fragmented)
 
 	/* Send the second fragment. */
 	EXPECT_EQ(ffa_memory_fragment_init(
-			  mb.send, HF_MAILBOX_SIZE,
+			  mb.send, PG_MAILBOX_SIZE,
 			  constituents + ARRAY_SIZE(constituents) -
 				  remaining_constituent_count,
 			  remaining_constituent_count, &fragment_length),

@@ -8,7 +8,7 @@
 
 #pragma once
 
-#include "vmapi/hf/ffa.h"
+#include "vmapi/pg/ffa.h"
 
 /*
  * A number of pages that is large enough that it must take two fragments to

@@ -8,10 +8,10 @@
 
 #include "arm_smmuv3.h"
 
-#include "hf/dlog.h"
-#include "hf/io.h"
-#include "hf/panic.h"
-#include "hf/static_assert.h"
+#include "pg/dlog.h"
+#include "pg/io.h"
+#include "pg/panic.h"
+#include "pg/static_assert.h"
 
 #define MAX_ATTEMPTS 50000
 
@@ -20,19 +20,8 @@ static unsigned int smmu_instance = 0;
 
 static uint32_t find_offset(uint32_t secure, uint32_t non_secure)
 {
-#if SECURE_WORLD == 1
-	/*
-	 * Workaround necessary to deal with the following compilation error:
-	 * error: parameter 'non_secure' is unused
-	 * [misc-unused-parameters,-warnings-as-errors]
-	 */
-	(void)non_secure;
-
-	return secure;
-#else
 	(void)secure;
 	return non_secure;
-#endif
 }
 
 static bool smmuv3_poll(void *addr, uint32_t offset, uint32_t exp,
@@ -76,7 +65,7 @@ static void smmuv3_disabled_translation(struct smmuv3_driver *smmuv3)
 	gbpa_reg =
 		gbpa_reg | COMPOSE(INCOMING_CFG, ALLOCFG_SHIFT, ALLOCFG_MASK);
 	gbpa_reg = gbpa_reg | COMPOSE(INCOMING_CFG, MTCFG_SHIFT, MTCFG_MASK);
-	gbpa_update_set = (1 << UPDATE_SHIFT);
+	gbpa_update_set = (1ul << UPDATE_SHIFT);
 
 	offset = find_offset(S_GBPA, GBPA);
 
@@ -85,7 +74,7 @@ static void smmuv3_disabled_translation(struct smmuv3_driver *smmuv3)
 			    gbpa_reg | gbpa_update_set);
 
 	if (!smmuv3_poll(smmuv3->base_addr, offset, gbpa_reg,
-			 (1 << UPDATE_SHIFT))) {
+			 (1ul << UPDATE_SHIFT))) {
 		panic("SMMUv3: Failed to update Gloal Bypass Attribute\n");
 	}
 }
@@ -246,14 +235,7 @@ static bool smmuv3_queue_sizes(struct smmuv3_driver *smmuv3)
 
 	smmuv3->prop.sub_stream_n_bits = size;
 
-#if SECURE_WORLD == 1
-	uint32_t s_idr1;
-
-	s_idr1 = mmio_read32_offset(smmuv3->base_addr, S_IDR1);
-	size = EXTRACT(s_idr1, SID_SHIFT, SID_MASK);
-#else
 	size = EXTRACT(idr1, SID_SHIFT, SID_MASK);
-#endif
 
 	if (size > SID_SIZE_MAX) {
 		dlog_error("SMMUv3: Max bits of StreamID cannot exceed %d\n",
@@ -281,35 +263,6 @@ static bool smmuv3_xlat_support(struct smmuv3_driver *smmuv3)
 	uint64_t oas;
 	uint64_t oas_bits;
 
-#if SECURE_WORLD == 1
-	uint32_t s_idr1;
-
-	s_idr1 = mmio_read32_offset(smmuv3->base_addr, S_IDR1);
-
-	if (!(s_idr1 & SECURE_IMPL_MASK)) {
-		dlog_error("SMMUv3 does not implement secure state\n");
-		return false;
-	}
-	/*
-	 * If Secure state is implemented, Stage 1 must be supported
-	 * i.e., SMMU_IDR0.S1P=1
-	 */
-	if ((smmuv3->prop.xlat_stages == NO_STG1_STG2) ||
-	    (smmuv3->prop.xlat_stages == STG2_ONLY)) {
-		dlog_error(
-			"SMMUv3: Stage 1 translation needs to be supported\n");
-		return false;
-	}
-
-	/*
-	 * SMMU_S_IDR1.SEL2 indicates support for both S-EL2 and Secure stage 2
-	 */
-	if (!(s_idr1 & SEL2_STG2_SUPPORT)) {
-		dlog_error(
-			"SMMUv3: Secure stage 2 translation not supported!\n");
-		return false;
-	}
-#endif
 	idr5 = mmio_read32_offset(smmuv3->base_addr, IDR5);
 	oas_bits = EXTRACT(idr5, OAS_SHIFT, OAS_MASK);
 
@@ -645,13 +598,11 @@ static void construct_inv_ste_cfg(uint64_t *cmd, uint32_t sid)
 	cmd[1] = LEAF_STE;
 }
 
-#if SECURE_WORLD == 0
 static void construct_tlbi_cmd(uint64_t *cmd, struct cmd_tlbi cmd_format)
 {
 	cmd[0] = COMPOSE(cmd_format.opcode, OP_SHIFT, OP_MASK);
 	cmd[1] = 0;
 }
-#endif
 
 static void construct_cmd_sync(uint64_t *cmd)
 {
@@ -965,23 +916,6 @@ static bool inval_cached_STE(struct smmuv3_driver *smmuv3, uint32_t sid)
 
 static bool smmuv3_inv_cfg_tlbs(struct smmuv3_driver *smmuv3)
 {
-#if SECURE_WORLD == 1
-
-	/* Set SMMU_S_INIT.INV_ALL to 1 */
-	dlog_verbose("SMMUv3: write to S_INIT\n");
-	mmio_write32_offset(smmuv3->base_addr, S_INIT, SMMU_INV_ALL);
-
-	/*
-	 * Poll to check SMMU_S_INIT.INV_ALL is set to 0 by SMMU to indicate
-	 * completion of invalidation
-	 */
-	if (!smmuv3_poll(smmuv3->base_addr, S_INIT, INV_COMPLETE, 1)) {
-		dlog_error(
-			"SMMUv3: Could not invalidate configuration caches "
-			"using SMMU_S_INIT\n");
-		return false;
-	}
-#else
 	uint64_t cmd[CMD_SIZE_DW];
 
 	/* Invalidate all cached configurations */
@@ -1009,7 +943,7 @@ static bool smmuv3_inv_cfg_tlbs(struct smmuv3_driver *smmuv3)
 		dlog_error("SMMUv3: Failed to invalidate TLB entries\n");
 		return false;
 	}
-#endif
+
 	return true;
 }
 
@@ -1148,7 +1082,7 @@ bool smmuv3_driver_init(struct smmuv3_driver *smmuv3, uintpaddr_t base,
 				    MM_MODE_R | MM_MODE_W | MM_MODE_D, ppool);
 	if (base_addr == NULL) {
 		dlog_error(
-			"SMMUv3: Could not map SMMU into Hafnium memory map\n");
+			"SMMUv3: Could not map SMMU into Peregrine memory map\n");
 		return false;
 	}
 
@@ -1277,27 +1211,9 @@ static bool smmuv3_config_ste_stg2(struct smmuv3_driver *smmuv3, struct vm *vm,
 	 * explanation of the choice of NSA, NSW, SA and SW fields in secure
 	 * state. NSA = 1 : NSW = 0 : SA =  0 : SW =  0 :
 	 */
-#if SECURE_WORLD == 1
-	/* STRW is S-EL2*/
-	ste_data[1] |= COMPOSE(STW_SEL2, STE_STW_SHIFT, STE_STW_MASK);
-	ste_data[3] = COMPOSE(0, STE_S2NSW_SHIFT, STE_S2NSW_MASK);
-	ste_data[3] |= COMPOSE(1, STE_S2NSA_SHIFT, STE_S2NSA_MASK);
-
-	/* BITS 319:256 */
-	ste_data[4] = COMPOSE(64 - smmuv3->prop.ias, STE_SS2T0SZ_SHIFT,
-			      STE_SS2T0SZ_MASK);
-	ste_data[4] |= COMPOSE(sl0, STE_SS2SL0_SHIFT, STE_SS2SL0_MASK);
-	ste_data[4] |= COMPOSE(S2TF_4KB, STE_SS2TG_SHIFT, STE_SS2TG_MASK);
-
-	/* BITS 447:384 */
-	ste_data[6] = COMPOSE(0, STE_S2SW_SHIFT, STE_S2SW_MASK);
-	ste_data[6] |= COMPOSE(0, STE_S2SA_SHIFT, STE_S2SA_MASK);
-	ste_data[6] |= COMPOSE(vttbr, STE_SS2TTB_SHIFT, STE_SS2TTB_MASK);
-#else
 	/* STRW is EL2*/
 	ste_data[1] |= COMPOSE(STW_EL2, STE_STW_SHIFT, STE_STW_MASK);
 	ste_data[3] = COMPOSE(vttbr, STE_S2TTB_SHIFT, STE_S2TTB_MASK);
-#endif
 
 	return true;
 }
@@ -1356,7 +1272,7 @@ bool plat_iommu_init(const struct fdt *fdt,
 		return false;
 	}
 
-	dlog_info("Arm SMMUv3 initialized\n");
+	dlog_debug("Arm SMMUv3 initialized\n");
 
 	return true;
 }
@@ -1369,8 +1285,10 @@ bool plat_iommu_unmap_iommus(struct vm_locked vm_locked, struct mpool *ppool)
 	return true;
 }
 
-void plat_iommu_identity_map(struct vm_locked vm_locked, paddr_t begin,
-			     paddr_t end, uint32_t mode)
+void plat_iommu_identity_map(__attribute__((unused)) struct vm_locked vm_locked,
+				  __attribute__((unused)) paddr_t begin,
+				  __attribute__((unused)) paddr_t end,
+				  __attribute__((unused)) uint32_t mode)
 {
 }
 

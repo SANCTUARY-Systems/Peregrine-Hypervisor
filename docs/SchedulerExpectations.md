@@ -36,7 +36,7 @@ run queue and not call `FFA_RUN` on the vCPU until it has either:
 
 *   injected an interrupt
 *   sent it a message
-*   received `HF_FFA_RUN_WAKE_UP` for it from another vCPU
+*   received `PG_FFA_RUN_WAKE_UP` for it from another vCPU
 *   the timeout provided in `w2` is not `FFA_SLEEP_INDEFINITE` and the
     specified duration has expired.
 
@@ -51,11 +51,11 @@ VM as usual.
 ### `FFA_RX_RELEASE`
 
 The vCPU has made the mailbox writable and there are pending waiters. The
-scheduler MUST call `hf_mailbox_waiter_get()` repeatedly and notify all waiters
-by injecting an `HF_MAILBOX_WRITABLE_INTID` interrupt. The scheduler should call
+scheduler MUST call `pg_mailbox_waiter_get()` repeatedly and notify all waiters
+by injecting an `PG_MAILBOX_WRITABLE_INTID` interrupt. The scheduler should call
 FFA_RUN again on the sending VM as usual.
 
-### `HF_FFA_RUN_WAIT_FOR_INTERRUPT`
+### `PG_FFA_RUN_WAIT_FOR_INTERRUPT`
 
 _This is a Hafnium-specific function not part of the FF-A standard._
 
@@ -63,16 +63,16 @@ The vCPU is blocked waiting for an interrupt. The scheduler MUST take it off the
 run queue and not call `FFA_RUN` on the vCPU until it has either:
 
 *   injected an interrupt
-*   received `HF_FFA_RUN_WAKE_UP` for it from another vCPU
+*   received `PG_FFA_RUN_WAKE_UP` for it from another vCPU
 *   the timeout provided in `w2` is not `FFA_SLEEP_INDEFINITE` and the
     specified duration has expired.
 
-### `HF_FFA_RUN_WAKE_UP`
+### `PG_FFA_RUN_WAKE_UP`
 
 _This is a Hafnium-specific function not part of the FF-A standard._
 
-Hafnium would like `hf_vcpu_run` to be called on another vCPU, specified by
-`hf_vcpu_run_return.wake_up`. The scheduler MUST either wake the vCPU in
+Hafnium would like `pg_vcpu_run` to be called on another vCPU, specified by
+`pg_vcpu_run_return.wake_up`. The scheduler MUST either wake the vCPU in
 question up if it is blocked, or preempt and re-run it if it is already running
 somewhere. This gives Hafnium a chance to update any CPU state which might have
 changed. The scheduler should call FFA_RUN again on the sending VM as usual.
@@ -82,9 +82,9 @@ changed. The scheduler should call FFA_RUN again on the sending VM as usual.
 #### `FFA_ABORTED`
 
 The vCPU has aborted triggering the whole VM to abort. The scheduler MUST treat
-this the same as `HF_FFA_RUN_WAKE_UP` for all the other vCPUs of the VM. For
+this the same as `PG_FFA_RUN_WAKE_UP` for all the other vCPUs of the VM. For
 this vCPU the scheduler SHOULD either never call FFA_RUN on the vCPU again, or
-treat it the same as `HF_FFA_RUN_WAIT_FOR_INTERRUPT`.
+treat it the same as `PG_FFA_RUN_WAIT_FOR_INTERRUPT`.
 
 #### Any other error code
 
@@ -101,7 +101,7 @@ usual. However, it must also:
 *   Enable, handle and ignore interrupts for the non-secure hypervisor physical
     timer (PPI 10, IRQ 26).
 *   Forward interrupts intended for secondary VMs to an appropriate vCPU of the
-    VM by calling `hf_interrupt_inject` and then running the vCPU as usual with
+    VM by calling `pg_interrupt_inject` and then running the vCPU as usual with
     `FFA_RUN`. (If the vCPU is already running at the time that
-    `hf_interrupt_inject` is called then it must be preempted and run again so
+    `pg_interrupt_inject` is called then it must be preempted and run again so
     that Hafnium can inject the interrupt.)

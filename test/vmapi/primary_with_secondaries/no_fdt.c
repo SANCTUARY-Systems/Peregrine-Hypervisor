@@ -14,17 +14,17 @@
 #include <stdalign.h>
 #include <stdint.h>
 
-#include "hf/mm.h"
-#include "hf/static_assert.h"
-#include "hf/std.h"
+#include "pg/mm.h"
+#include "pg/static_assert.h"
+#include "pg/std.h"
 
-#include "vmapi/hf/call.h"
+#include "vmapi/pg/call.h"
 
 #include "primary_with_secondary.h"
 #include "test/hftest.h"
 #include "test/vmapi/ffa.h"
 
-#define SECONDARY_VM1 (HF_VM_ID_OFFSET + 1)
+#define SECONDARY_VM1 (PG_VM_ID_OFFSET + 1)
 
 /**
  * Runs the secondary VM and waits for it to yield.

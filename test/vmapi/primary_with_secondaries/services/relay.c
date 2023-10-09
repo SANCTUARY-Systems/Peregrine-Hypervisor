@@ -6,9 +6,9 @@
  * https://opensource.org/licenses/BSD-3-Clause.
  */
 
-#include "hf/std.h"
+#include "pg/std.h"
 
-#include "vmapi/hf/call.h"
+#include "vmapi/pg/call.h"
 
 #include "test/hftest.h"
 
@@ -47,6 +47,6 @@ TEST_SERVICE(relay)
 			 next_message_size);
 
 		EXPECT_EQ(ffa_rx_release().func, FFA_SUCCESS_32);
-		ffa_msg_send(hf_vm_get_id(), next_vm_id, next_message_size, 0);
+		ffa_msg_send(pg_vm_get_id(), next_vm_id, next_message_size, 0);
 	}
 }

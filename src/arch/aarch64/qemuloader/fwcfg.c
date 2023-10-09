@@ -11,9 +11,9 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#include "hf/arch/std.h"
+#include "pg/arch/std.h"
 
-#include "hf/io.h"
+#include "pg/io.h"
 
 #define FW_CFG_CONTROL_ERROR htobe32(1 << 0)
 #define FW_CFG_CONTROL_READ htobe32(1 << 1)

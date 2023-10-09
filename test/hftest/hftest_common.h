@@ -6,8 +6,8 @@
  * https://opensource.org/licenses/BSD-3-Clause.
  */
 
-#include "hf/fdt.h"
-#include "hf/memiter.h"
+#include "pg/fdt.h"
+#include "pg/memiter.h"
 
 #include "test/hftest_impl.h"
 

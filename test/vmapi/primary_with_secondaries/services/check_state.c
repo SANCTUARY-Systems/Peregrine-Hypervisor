@@ -6,11 +6,11 @@
  * https://opensource.org/licenses/BSD-3-Clause.
  */
 
-#include "hf/arch/vm/state.h"
+#include "pg/arch/vm/state.h"
 
-#include "hf/std.h"
+#include "pg/std.h"
 
-#include "vmapi/hf/call.h"
+#include "vmapi/pg/call.h"
 
 #include "test/hftest.h"
 
@@ -50,13 +50,13 @@ TEST_SERVICE(check_state)
 		 */
 		expected = i;
 		per_cpu_ptr_set(expected);
-		send_with_retry(hf_vm_get_id(), HF_PRIMARY_VM_ID, 0);
+		send_with_retry(pg_vm_get_id(), PG_PRIMARY_VM_ID, 0);
 		actual = per_cpu_ptr_get();
 		ok &= expected == actual;
 	}
 
 	/* Send two replies, one for each physical CPU. */
 	memcpy_s(SERVICE_SEND_BUFFER(), FFA_MSG_PAYLOAD_MAX, &ok, sizeof(ok));
-	send_with_retry(hf_vm_get_id(), HF_PRIMARY_VM_ID, sizeof(ok));
-	send_with_retry(hf_vm_get_id(), HF_PRIMARY_VM_ID, sizeof(ok));
+	send_with_retry(pg_vm_get_id(), PG_PRIMARY_VM_ID, sizeof(ok));
+	send_with_retry(pg_vm_get_id(), PG_PRIMARY_VM_ID, sizeof(ok));
 }

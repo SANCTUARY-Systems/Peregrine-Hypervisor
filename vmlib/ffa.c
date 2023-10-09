@@ -6,18 +6,18 @@
  * https://opensource.org/licenses/BSD-3-Clause.
  */
 
-#include "hf/ffa.h"
+#include "pg/ffa.h"
 
 #include <stddef.h>
 
-#include "hf/types.h"
+#include "pg/types.h"
 
 #if defined(__linux__) && defined(__KERNEL__)
 #include <linux/kernel.h>
 #include <linux/string.h>
 
 #else
-#include "hf/std.h"
+#include "pg/std.h"
 #endif
 
 /**

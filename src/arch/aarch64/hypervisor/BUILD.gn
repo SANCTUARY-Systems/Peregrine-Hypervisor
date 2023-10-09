@@ -5,22 +5,20 @@
 # https://opensource.org/licenses/BSD-3-Clause.
 
 import("//build/toolchain/offset_size_header.gni")
+import("//build/toolchain/platform.gni")
 import("//src/arch/aarch64/args.gni")
 
 offset_size_header("offsets") {
   sources = [
     "offsets.c",
   ]
-  path = "hf/arch/offsets.h"
+  path = "pg/arch/offsets.h"
 }
 
-source_set("other_world") {
+source_set("vm") {
   public_configs = [ "//src/arch/aarch64:config" ]
-  sources = [
-    "other_world.c",
-  ]
   deps = [
-    "//src:vm",
+      "//src:vm",
   ]
 }
 
@@ -53,10 +51,17 @@ source_set("hypervisor") {
     "//src/arch/aarch64:arch",
     "//src/arch/aarch64:entry",
     "//src/arch/aarch64:smc",
-    plat_ffa,
+    "//src:vm",
     plat_interrupts,
     plat_prng,
     plat_psci,
     plat_smc,
+  ]
+}
+
+source_set("src_testable") {
+  sources = [
+    "mediator.c",
+    "default_mediator.c"
   ]
 }

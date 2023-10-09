@@ -9,12 +9,12 @@
 #include <stdalign.h>
 #include <stdint.h>
 
-#include "hf/arch/vm/power_mgmt.h"
+#include "pg/arch/vm/power_mgmt.h"
 
-#include "hf/mm.h"
-#include "hf/std.h"
+#include "pg/mm.h"
+#include "pg/std.h"
 
-#include "vmapi/hf/call.h"
+#include "vmapi/pg/call.h"
 
 #include "primary_with_secondary.h"
 #include "test/hftest.h"

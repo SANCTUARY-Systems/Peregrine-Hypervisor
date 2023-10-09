@@ -6,14 +6,15 @@
  * https://opensource.org/licenses/BSD-3-Clause.
  */
 
-#include "hf/fdt_handler.h"
+#include "pg/fdt_handler.h"
 
-#include "hf/check.h"
-#include "hf/cpu.h"
-#include "hf/dlog.h"
-#include "hf/fdt.h"
-#include "hf/mm.h"
-#include "hf/std.h"
+#include "pg/check.h"
+#include "pg/cpu.h"
+#include "pg/dlog.h"
+#include "pg/fdt.h"
+#include "pg/mm.h"
+#include "pg/std.h"
+#include "pg/pma.h"
 
 /**
  * Initializes the FDT struct with the pointer to the FDT data (header) in
@@ -177,8 +178,8 @@ bool fdt_map(struct fdt *fdt, struct mm_stage1_locked stage1_locked,
 	size_t fdt_len;
 
 	/* Map the fdt header in. */
-	fdt_ptr = mm_identity_map(stage1_locked, fdt_addr,
-				  pa_add(fdt_addr, FDT_V17_HEADER_SIZE),
+	fdt_ptr = mm_identity_map_and_reserve(stage1_locked, fdt_addr,
+				  pa_add(fdt_addr, FDT_V17_HEADER_SIZE+1),
 				  MM_MODE_R, ppool);
 	if (!fdt_ptr) {
 		dlog_error("Unable to map FDT header.\n");
@@ -190,9 +191,13 @@ bool fdt_map(struct fdt *fdt, struct mm_stage1_locked stage1_locked,
 		goto fail;
 	}
 
-	/* Map the rest of the fdt in. */
-	fdt_ptr = mm_identity_map(stage1_locked, fdt_addr,
+	/* Map the rest of the fdt in, but only if its not already mapped  */
+	if(fdt_len  > PAGE_SIZE)
+	{
+		pma_release_memory(fdt_addr.pa, (pa_add(fdt_addr, FDT_V17_HEADER_SIZE)).pa, HYPERVISOR_ID);
+		fdt_ptr = mm_identity_map_and_reserve(stage1_locked, fdt_addr,
 				  pa_add(fdt_addr, fdt_len), MM_MODE_R, ppool);
+	}
 	if (!fdt_ptr) {
 		dlog_error("Unable to map full FDT.\n");
 		goto fail;
@@ -253,6 +258,7 @@ bool fdt_get_memory_size(const struct fdt *fdt, size_t *size)
 	}
 
 	*size = pa_difference(mem_range.begin, mem_range.end);
+	dlog_debug("memory size from FDT: %#x - %#x\n", mem_range.begin, mem_range.end);
 
 	return true;
 }

@@ -8,7 +8,7 @@
 
 #pragma once
 
-#include "vmapi/hf/call.h"
+#include "vmapi/pg/call.h"
 
 #include "../msr.h"
 #include "test/hftest.h"

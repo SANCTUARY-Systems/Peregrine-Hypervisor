@@ -54,5 +54,6 @@
 #define PSCI_ERROR_NOT_PRESENT         (-7)
 #define PSCI_ERROR_DISABLE             (-8)
 #define PSCI_ERROR_INVALID_ADDRESS     (-9)
+#define PSCI_ERROR_NO_PERMISSION	   (-10)
 
 /* clang-format on */

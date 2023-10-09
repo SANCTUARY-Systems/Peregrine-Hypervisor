@@ -1,0 +1,21 @@
+import("args.gni")
+
+source_set("imx") {
+  sources = [
+    "uart.c",
+  ]
+  deps = [
+    "//src/arch/aarch64:arch",
+  ]
+
+  assert(defined(uart_clock),
+         "\"uart_clock\" must be defined for ${target_name}.")
+
+  assert(defined(uart_baudrate),
+         "\"uart_baudrate\" must be defined for ${target_name}.")
+
+  defines = [
+    "UART_CLOCK=${uart_clock}",
+    "UART_BAUDRATE=${uart_baudrate}",
+  ]
+}

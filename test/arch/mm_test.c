@@ -6,9 +6,9 @@
  * https://opensource.org/licenses/BSD-3-Clause.
  */
 
-#include "hf/mm.h"
+#include "pg/mm.h"
 
-#include "hf/arch/mm.h"
+#include "pg/arch/mm.h"
 
 #include "test/hftest.h"
 
@@ -113,7 +113,7 @@ EXPAND_LEVEL_TESTS
 		}                                                      \
                                                                        \
 		block_pte = arch_mm_block_pte(                         \
-			level, pa_init(PAGE_SIZE * 12345678), attrs);  \
+			level, pa_init(PAGE_SIZE * 12345678U), attrs); \
                                                                        \
 		EXPECT_TRUE(arch_mm_pte_is_present(block_pte, level)); \
 		EXPECT_TRUE(arch_mm_pte_is_valid(block_pte, level));   \
@@ -137,8 +137,8 @@ EXPAND_LEVEL_TESTS
 			return;                                                \
 		}                                                              \
                                                                                \
-		table_pte = arch_mm_table_pte(level,                           \
-					      pa_init(PAGE_SIZE * 999999999)); \
+		table_pte = arch_mm_table_pte(                                 \
+			level, pa_init(PAGE_SIZE * 999999999U));               \
                                                                                \
 		EXPECT_TRUE(arch_mm_pte_is_present(table_pte, level));         \
 		EXPECT_TRUE(arch_mm_pte_is_valid(table_pte, level));           \

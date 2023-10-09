@@ -3,6 +3,7 @@
 # Use of this source code is governed by a BSD-style
 # license that can be found in the LICENSE file or at
 # https://opensource.org/licenses/BSD-3-Clause.
+import("//build/toolchain/platform.gni")
 
 config("arch_config") {
 }
@@ -12,6 +13,8 @@ source_set("arch") {
     "cache.c",
     "mm.c",
     "timer.c",
+    "smc.c"
+#    "std.c",
   ]
 }
 
@@ -29,5 +32,12 @@ source_set("console") {
 }
 
 # Empty, as the functions are provided by libc already.
-source_set("std") {
+#source_set("std") {
+#}
+source_set("src_testable") {
+
+  public_configs = [ "//src/arch/fake:arch_config" ]
+  deps = [
+    "//src/arch/${plat_arch}/hypervisor:src_testable"
+  ]
 }

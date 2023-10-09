@@ -6,8 +6,8 @@
  * https://opensource.org/licenses/BSD-3-Clause.
  */
 
-#include "hf/cpu.h"
-#include "hf/dlog.h"
+#include "pg/cpu.h"
+#include "pg/dlog.h"
 
 #include "psci.h"
 

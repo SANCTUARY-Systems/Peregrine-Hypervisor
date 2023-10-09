@@ -8,9 +8,9 @@
 
 #include "perfmon.h"
 
-#include "hf/check.h"
-#include "hf/dlog.h"
-#include "hf/types.h"
+#include "pg/check.h"
+#include "pg/dlog.h"
+#include "pg/types.h"
 
 #include "msr.h"
 #include "sysregs.h"
@@ -149,13 +149,13 @@ bool perfmon_is_register_access(uintreg_t esr)
  * Processes an access (msr, mrs) to a performance monitor register.
  * Returns true if the access was allowed and performed, false otherwise.
  */
-bool perfmon_process_access(struct vcpu *vcpu, ffa_vm_id_t vm_id, uintreg_t esr)
+bool perfmon_process_access(struct vcpu *vcpu, uint16_t vm_id, uintreg_t esr)
 {
 	/*
 	 * For now, performance monitor registers are not supported by secondary
 	 * VMs. Disallow accesses to them.
 	 */
-	if (vm_id != HF_PRIMARY_VM_ID) {
+	if (vm_id != PG_PRIMARY_VM_ID) {
 		return false;
 	}
 
@@ -223,9 +223,9 @@ bool perfmon_process_access(struct vcpu *vcpu, ffa_vm_id_t vm_id, uintreg_t esr)
 /**
  * Returns the value register PMCCFILTR_EL0 should have at initialization.
  */
-uintreg_t perfmon_get_pmccfiltr_el0_init_value(ffa_vm_id_t vm_id)
+uintreg_t perfmon_get_pmccfiltr_el0_init_value(uint16_t vm_id)
 {
-	if (vm_id != HF_PRIMARY_VM_ID) {
+	if (vm_id != PG_PRIMARY_VM_ID) {
 		/* Disable cycle counting for secondary VMs. */
 		return PMCCFILTR_EL0_P | PMCCFILTR_EL0_U;
 	}

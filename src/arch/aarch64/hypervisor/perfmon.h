@@ -8,11 +8,11 @@
 
 #pragma once
 
-#include "hf/arch/types.h"
+#include "pg/arch/types.h"
 
-#include "hf/cpu.h"
+#include "pg/cpu.h"
 
-#include "vmapi/hf/ffa.h"
+#include "vmapi/pg/ffa.h"
 
 /**
  * Set to disable cycle counting when event counting is prohibited.
@@ -66,7 +66,7 @@
 
 bool perfmon_is_register_access(uintreg_t esr_el2);
 
-bool perfmon_process_access(struct vcpu *vcpu, ffa_vm_id_t vm_id,
+bool perfmon_process_access(struct vcpu *vcpu, uint16_t vm_id,
 			    uintreg_t esr_el2);
 
-uintreg_t perfmon_get_pmccfiltr_el0_init_value(ffa_vm_id_t vm_id);
+uintreg_t perfmon_get_pmccfiltr_el0_init_value(uint16_t vm_id);

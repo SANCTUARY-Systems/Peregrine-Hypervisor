@@ -35,7 +35,7 @@ TEST(perfmon, secondary_basic)
  */
 TEST(perfmon, primary_basic)
 {
-	EXPECT_EQ(hf_vm_get_id(), HF_PRIMARY_VM_ID);
+	EXPECT_EQ(pg_vm_get_id(), PG_PRIMARY_VM_ID);
 
 	TRY_READ(PMCEID0_EL0);
 	TRY_READ(PMCEID1_EL0);
@@ -52,7 +52,7 @@ TEST(perfmon, primary_read_write)
 	uintreg_t pmcr_el0 = read_msr(PMCR_EL0);
 	uintreg_t perf_mon_count = GET_PMCR_EL0_N(pmcr_el0);
 
-	EXPECT_EQ(hf_vm_get_id(), HF_PRIMARY_VM_ID);
+	EXPECT_EQ(pg_vm_get_id(), PG_PRIMARY_VM_ID);
 
 	/*
 	 * Ensure that there are enough performance counters in the underlying
@@ -90,7 +90,7 @@ TEST(perfmon, primary_counters)
 	uintreg_t pmcr_el0 = read_msr(PMCR_EL0);
 	uintreg_t perf_mon_count = GET_PMCR_EL0_N(pmcr_el0);
 
-	EXPECT_EQ(hf_vm_get_id(), HF_PRIMARY_VM_ID);
+	EXPECT_EQ(pg_vm_get_id(), PG_PRIMARY_VM_ID);
 
 	if (perf_mon_count == 0) {
 		return;

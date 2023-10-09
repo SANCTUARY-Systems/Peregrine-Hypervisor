@@ -6,7 +6,7 @@
  * https://opensource.org/licenses/BSD-3-Clause.
  */
 
-#include "hf/plat/iommu.h"
+#include "pg/plat/iommu.h"
 
 bool plat_iommu_init(const struct fdt *fdt,
 		     struct mm_stage1_locked stage1_locked, struct mpool *ppool)

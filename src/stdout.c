@@ -6,9 +6,9 @@
  * https://opensource.org/licenses/BSD-3-Clause.
  */
 
-#include "hf/stdout.h"
+#include "pg/stdout.h"
 
-#include "hf/plat/console.h"
+#include "pg/plat/console.h"
 
 void stdout_putchar(char c)
 {

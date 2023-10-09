@@ -9,23 +9,23 @@
 #include <stdalign.h>
 #include <stdint.h>
 
-#include "hf/ffa.h"
-#include "hf/memiter.h"
-#include "hf/std.h"
+#include "pg/ffa.h"
+#include "pg/memiter.h"
+#include "pg/std.h"
 
-#include "vmapi/hf/call.h"
-#include "vmapi/hf/transport.h"
+#include "vmapi/pg/call.h"
+#include "vmapi/pg/transport.h"
 
 #include "test/hftest.h"
 #include "test/vmapi/ffa.h"
 
 alignas(4096) uint8_t kstack[4096];
 
-static alignas(HF_MAILBOX_SIZE) uint8_t send[HF_MAILBOX_SIZE];
-static alignas(HF_MAILBOX_SIZE) uint8_t recv[HF_MAILBOX_SIZE];
+static alignas(PG_MAILBOX_SIZE) uint8_t send[PG_MAILBOX_SIZE];
+static alignas(PG_MAILBOX_SIZE) uint8_t recv[PG_MAILBOX_SIZE];
 
-static hf_ipaddr_t send_addr = (hf_ipaddr_t)send;
-static hf_ipaddr_t recv_addr = (hf_ipaddr_t)recv;
+static pg_ipaddr_t send_addr = (pg_ipaddr_t)send;
+static pg_ipaddr_t recv_addr = (pg_ipaddr_t)recv;
 
 static struct hftest_context global_context;
 
@@ -84,7 +84,7 @@ noreturn void kmain(size_t memory_size)
 			 ffa_msg_send_size(ret));
 
 		/* Swap the socket's source and destination ports */
-		struct hf_msg_hdr *hdr = (struct hf_msg_hdr *)send;
+		struct pg_msg_hdr *hdr = (struct pg_msg_hdr *)send;
 		swap(&(hdr->src_port), &(hdr->dst_port));
 
 		/* Swap the destination and source ids. */

@@ -9,9 +9,9 @@
 #include <stdalign.h>
 #include <stdint.h>
 
-#include "hf/arch/vm/interrupts.h"
+#include "pg/arch/vm/interrupts.h"
 
-#include "hf/mm.h"
+#include "pg/mm.h"
 
 #include "hftest_common.h"
 #include "test/hftest.h"

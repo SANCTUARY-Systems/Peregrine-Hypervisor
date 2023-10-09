@@ -6,810 +6,1020 @@
  * https://opensource.org/licenses/BSD-3-Clause.
  */
 
-#include "hf/load.h"
 
 #include <stdbool.h>
 
-#include "hf/arch/other_world.h"
-#include "hf/arch/vm.h"
+#include "smc.h"
 
-#include "hf/api.h"
-#include "hf/boot_params.h"
-#include "hf/check.h"
-#include "hf/dlog.h"
-#include "hf/fdt_patch.h"
-#include "hf/layout.h"
-#include "hf/memiter.h"
-#include "hf/mm.h"
-#include "hf/plat/console.h"
-#include "hf/plat/iommu.h"
-#include "hf/static_assert.h"
-#include "hf/std.h"
-#include "hf/vm.h"
+#include "pg/arch/vm.h"
+#include "pg/arch/tee/mediator.h"
+#include "pg/arch/emulator.h"
+#include "pg/arch/virt_devs.h"
 
-#include "vmapi/hf/call.h"
-#include "vmapi/hf/ffa.h"
+#include "pg/manifest.h"
+#include "pg/plat/console.h"
+#include "pg/plat/iommu.h"
+#include "pg/plat/interrupts.h"
 
-/**
- * Copies data to an unmapped location by mapping it for write, copying the
- * data, then unmapping it.
+#include "pg/load.h"
+#include "pg/api.h"
+#include "pg/boot_params.h"
+#include "pg/check.h"
+#include "pg/dlog.h"
+#include "pg/layout.h"
+#include "pg/memiter.h"
+#include "pg/mm.h"
+#include "pg/pma.h"
+#include "pg/static_assert.h"
+#include "pg/std.h"
+#include "pg/vm.h"
+#include "pg/panic.h"
+#include "pg/error.h"
+
+#include "vmapi/pg/call.h"
+
+/******************************************************************************
+ ************************* INTERNAL HELPER FUNCTIONS **************************
+ ******************************************************************************/
+
+/* copy_to_unmapped - Copies data to an unmapped location
+ *  @stage1_locked : Currently locked stage-1 page table of the HV
+ *  @to            : Destination address
+ *  @from_it       : Source address & size
+ *  @ppool         : Memory pool
  *
- * The data is written so that it is available to all cores with the cache
- * disabled. When switching to the partitions, the caching is initially disabled
- * so the data must be available without the cache.
+ *  @return : true if everything went well; false otherwise
+ *
+ * Maps destination, copies data, then unmaps it again. The data is written so
+ * that it is available to all cores with the cache disabled. When switching to
+ * the partitions, the caching is initially disabled so the data must be
+ * available without the cache.
  */
-static bool copy_to_unmapped(struct mm_stage1_locked stage1_locked, paddr_t to,
-			     struct memiter *from_it, struct mpool *ppool)
+static bool
+copy_to_unmapped(struct mm_stage1_locked stage1_locked,
+                 paddr_t                 to,
+                 struct memiter          *from_it,
+                 struct mpool            *ppool)
 {
-	const void *from = memiter_base(from_it);
-	size_t size = memiter_size(from_it);
-	paddr_t to_end = pa_add(to, size);
-	void *ptr;
+    const void *from;    /* src address           */
+    size_t      size;    /* copy size             */
+    paddr_t     to_end;  /* dst end address       */
+    void        *ptr;    /* HV mapped dst address */
+    bool        ans;     /* answer                */
 
-	ptr = mm_identity_map(stage1_locked, to, to_end, MM_MODE_W, ppool);
-	if (!ptr) {
-		return false;
-	}
+    from = memiter_base(from_it);
+    size = memiter_size(from_it);
+    to_end = pa_add(to, size);
 
-	memcpy_s(ptr, size, from, size);
-	arch_mm_flush_dcache(ptr, size);
+    /* map destination buffer */
+    ptr = mm_identity_map_and_reserve(
+            stage1_locked, to, to_end, MM_MODE_W, ppool);
+    RET(!ptr, false, "unable to map [%#x - %#x]\n", to, to_end);
 
-	CHECK(mm_unmap(stage1_locked, to, to_end, ppool));
+    /* copy content */
+    memcpy_s(ptr, size, from, size);
+    arch_mm_flush_dcache(ptr, size);
 
-	return true;
+    /* unmap destination buffer */
+    ans = mm_unmap(stage1_locked, to, to_end, ppool);
+    DIE(!ans, "unable to unmap [%#x - %#x]\n");
+
+    return true;
 }
 
-/**
- * Loads the secondary VM's kernel.
- * Stores the kernel size in kernel_size (if kernel_size is not NULL).
- * Returns false if it cannot load the kernel.
+/* copy_to_allocated - Copies data to already mapped location
+ *  @to      : Destination address
+ *  @from_it : Source address and size
+ *
+ *  @return : true
+ *
+ * Same cache related notes from `copy_to_unmapped()` apply here.
  */
-static bool load_kernel(struct mm_stage1_locked stage1_locked, paddr_t begin,
-			paddr_t end, const struct manifest_vm *manifest_vm,
-			const struct memiter *cpio, struct mpool *ppool,
-			size_t *kernel_size)
+static bool
+copy_to_allocated(paddr_t to, struct memiter *from_it)
 {
-	struct memiter kernel;
-	size_t size;
+    const void *from;   /* src address */
+    size_t      size;   /* copy size   */
 
-	if (!cpio_get_file(cpio, &manifest_vm->kernel_filename, &kernel)) {
-		dlog_error("Could not find kernel file \"%s\".\n",
-			   string_data(&manifest_vm->kernel_filename));
-		return false;
-	}
+    from = memiter_base(from_it);
+    size = memiter_size(from_it);
 
-	size = memiter_size(&kernel);
-	if (pa_difference(begin, end) < size) {
-		dlog_error("Kernel is larger than available memory.\n");
-		return false;
-	}
+    /* copy content */
+    memcpy_s((void *)to.pa, size, from, size);
+    arch_mm_flush_dcache((void *)to.pa, size);
 
-	if (!copy_to_unmapped(stage1_locked, begin, &kernel, ppool)) {
-		dlog_error("Unable to copy kernel.\n");
-		return false;
-	}
-
-	if (kernel_size) {
-		*kernel_size = size;
-	}
-
-	return true;
+    return true;
 }
 
-/*
- * Link RX/TX buffers provided in partition manifest to mailbox
+/* infer_interrupt - unpacks interrupt attribute into descriptor structure
+ *  @interrupt : Interrupt number & attribute
+ *
+ *  @return : Descriptor needed to configure & enable interrupt
  */
-static bool link_rxtx_to_mailbox(struct mm_stage1_locked stage1_locked,
-				 struct vm_locked vm_locked, struct rx_tx rxtx,
-				 struct mpool *ppool)
+static struct interrupt_descriptor
+infer_interrupt(struct interrupt interrupt)
 {
-	struct ffa_value ret;
-	ipaddr_t send;
-	ipaddr_t recv;
-	uint32_t page_count;
+    struct interrupt_descriptor int_desc;   /* returned descriptor */
+    uint32_t                    attr;       /* easy access         */
 
-	send = ipa_init(rxtx.tx_buffer->base_address);
-	recv = ipa_init(rxtx.rx_buffer->base_address);
-	page_count = rxtx.tx_buffer->page_count;
+    /* extract interrupt id, priority, etc. from attributes */
+    attr = interrupt.attributes;
 
-	ret = api_vm_configure_pages(stage1_locked, vm_locked, send, recv,
-				     page_count, ppool);
-	if (ret.func != FFA_SUCCESS_32) {
-		return false;
-	}
+    int_desc.interrupt_id = interrupt.id;
+    int_desc.priority     = (attr >> INT_DESC_PRIORITY_SHIFT) & 0xff;
+    int_desc.type_config_sec_state =
+        (((attr >> INT_DESC_TYPE_SHIFT) & 0x3) << 2) |
+        (((attr >> INT_DESC_CONFIG_SHIFT) & 0x1) << 1) |
+        ((attr >> INT_DESC_SEC_STATE_SHIFT) & 0x1);
+    int_desc.valid = true;
 
-	dlog_verbose("  mailbox: send = %#x, recv = %#x\n",
-		     vm_locked.vm->mailbox.send, vm_locked.vm->mailbox.recv);
-
-	return true;
+    return int_desc;
 }
 
-/**
- * Performs VM loading activities that are common between the primary and
- * secondaries.
+/******************************************************************************
+ ************************* EXTERNAL HELPER FUNCTIONS **************************
+ ******************************************************************************/
+
+/* print_manifest - Dumps relevant manifest information regarding specific VM
+ *  @manifest_vm : Manifest data pertaining to the VM in question
+ *  @vm_id       : VM's order in the system manifest
+ *
  */
-static bool load_common(struct mm_stage1_locked stage1_locked,
-			struct vm_locked vm_locked,
-			const struct manifest_vm *manifest_vm,
-			struct mpool *ppool)
+void
+print_manifest(struct manifest_vm *manifest_vm,
+               uint16_t           vm_id)
 {
-	vm_locked.vm->smc_whitelist = manifest_vm->smc_whitelist;
-	vm_locked.vm->uuid = manifest_vm->sp.uuid;
+    dlog_debug("\n===================== %u =======================\n", vm_id);
+    dlog_debug("debug_name: %s\n",      manifest_vm->debug_name);
+    dlog_debug("kernel_filename: %s\n", manifest_vm->kernel_filename);
+    dlog_debug("kernel_addr_pa: %p\n",  manifest_vm->kernel_addr_pa);
+    dlog_debug("smc_whitlist\n");
+    dlog_debug("  permissive: %s\n",
+        manifest_vm->smc_whitelist.permissive ? "true" : "false");
 
-	if (manifest_vm->is_ffa_partition) {
-		/* Link rxtx buffers to mailbox */
-		if (manifest_vm->sp.rxtx.available) {
-			if (!link_rxtx_to_mailbox(stage1_locked, vm_locked,
-						  manifest_vm->sp.rxtx,
-						  ppool)) {
-				dlog_error(
-					"Unable to Link RX/TX buffer with "
-					"mailbox.\n");
-				return false;
-			}
-		}
+    RET(manifest_vm->smc_whitelist.smc_count > MAX_SMCS, ,
+        "VM %#x exceeded SMC whitelist quota", vm_id);
 
-		if (manifest_vm->sp.messaging_method ==
-			    DIRECT_MESSAGING_MANAGED_EXIT ||
-		    manifest_vm->sp.messaging_method ==
-			    BOTH_MESSAGING_MANAGED_EXIT) {
-			vm_locked.vm->supports_managed_exit = true;
-		}
+    for (size_t i = 0; i < manifest_vm->smc_whitelist.smc_count; i++)
+        dlog_debug("  smc[%u]: %#x\n", i, manifest_vm->smc_whitelist.smcs[i]);
 
-		vm_locked.vm->boot_order = manifest_vm->sp.boot_order;
-		/* Updating boot list according to boot_order */
-		vm_update_boot(vm_locked.vm);
-	}
+    dlog_debug("  dev_region_count: %u\n", manifest_vm->dev_region_count);
+    for (size_t i = 0; i < manifest_vm->dev_region_count; i++) {
+        dlog_debug("  dev_region %u\n", i);
+        dlog_debug("    base_address: %#x\n",
+            manifest_vm->dev_regions[i].base_address);
+        dlog_debug("    page_count: %#x\n",
+            manifest_vm->dev_regions[i].page_count);
+        dlog_debug("    attributes: %#x\n",
+            manifest_vm->dev_regions[i].attributes);
 
-	/* Initialize architecture-specific features. */
-	arch_vm_features_set(vm_locked.vm);
+        for (size_t j = 0;
+             j < manifest_vm->dev_regions[i].interrupt_count; 
+             j++)
+        {
+            dlog_debug("    interrupt %u: id %u, attributes: %#x\n",
+                j, manifest_vm->dev_regions[i].interrupts[j].id,
+                manifest_vm->dev_regions[i].interrupts[j].attributes);
+        }
+    }
 
-	if (!plat_iommu_attach_peripheral(stage1_locked, vm_locked, manifest_vm,
-					  ppool)) {
-		dlog_error("Unable to attach upstream peripheral device\n");
-		return false;
-	}
+    dlog_debug("boot_address: %#x\n",     manifest_vm->boot_address);
+    dlog_debug("ramdisk_filename: %#x\n", manifest_vm->ramdisk_filename);
+    dlog_debug("ramdisk_addr_pa: %p\n",   manifest_vm->ramdisk_addr_pa);
+    dlog_debug("fdt_filename: %s\n",      manifest_vm->fdt_filename);
+    dlog_debug("fdt_addr_pa: %p\n",       manifest_vm->fdt_addr_pa);
 
-	return true;
+    dlog_debug("memory_layout:\n");
+    dlog_debug("  gic: %#x\n",     manifest_vm->mem_layout.gic);
+    dlog_debug("  kernel: %#x\n",  manifest_vm->mem_layout.kernel);
+    dlog_debug("  fdt: %#x\n",     manifest_vm->mem_layout.fdt);
+    dlog_debug("  ramdisk: %#x\n", manifest_vm->mem_layout.ramdisk);
+
+    dlog_debug("vcpu_count: %u\n", manifest_vm->vcpu_count);
+    dlog_debug("===============================================\n\n");
 }
 
-/**
- * Loads the primary VM.
+/******************************************************************************
+ ************************* VM COMPONENTS INITIALIZERS *************************
+ ******************************************************************************/
+
+/* load_fdt - Loads the VM's Flattened Device Tree
+ *  @stage1_locked   : Currently locked stage-1 page table of the HV
+ *  @begin           : FDT buffer start address (NULL if not yet allocated)
+ *  @end             : FDT buffer end address (NULL if not yet allocated)
+ *  @ipa_begin       : Guest physical address where FDT is mapped
+ *  @manifest_vm     : Ptr to the VM manifest structure
+ *  @cpio            : Ptr to the CPIO archive containing the FDT
+ *  @ppool           : Memory pool
+ *  @fdt_size        : Location where FDT size is stored (can be NULL)
+ *  @boot_kernel_arg : FDT address passed to the kernel at boot
+ *
+ *  @return : true if everything went well; false otherwise
  */
-static bool load_primary(struct mm_stage1_locked stage1_locked,
-			 const struct manifest_vm *manifest_vm,
-			 const struct memiter *cpio,
-			 const struct boot_params *params, struct mpool *ppool)
+static bool
+load_fdt(struct mm_stage1_locked stage1_locked,
+         paddr_t                 begin,
+         paddr_t                 end,
+         ipaddr_t                ipa_begin,
+         struct manifest_vm      *manifest_vm,
+         const struct memiter    *cpio,
+         struct mpool            *ppool,
+         size_t                  *fdt_size,
+         uintreg_t               *boot_kernel_arg)
 {
-	paddr_t primary_begin;
-	ipaddr_t primary_entry;
-	struct vm *vm;
-	struct vm_locked vm_locked;
-	struct vcpu_locked vcpu_locked;
-	size_t i;
-	bool ret;
+    struct memiter fdt;     /* FDT buffer */
+    size_t         size;    /* FDT size   */
+    void           *ans_p;  /* answer     */
+    bool           ans;     /* answer     */
 
-	if (manifest_vm->is_ffa_partition) {
-		primary_begin = pa_init(manifest_vm->sp.load_addr);
-		primary_entry = ipa_add(ipa_from_pa(primary_begin),
-					manifest_vm->sp.ep_offset);
-	} else {
-		primary_begin =
-			(manifest_vm->primary.boot_address ==
-			 MANIFEST_INVALID_ADDRESS)
-				? layout_primary_begin()
-				: pa_init(manifest_vm->primary.boot_address);
-		primary_entry = ipa_from_pa(primary_begin);
-	}
+    /* determine size & location of FDT file in CPIO archive */
+    ans = cpio_get_file(cpio, &manifest_vm->fdt_filename, &fdt);
+    RET(!ans, false, "unable to find FDT file \"%s\"\n",
+        string_data(&manifest_vm->fdt_filename));
 
-	paddr_t primary_end = pa_add(primary_begin, RSIZE_MAX);
+    size = memiter_size(&fdt);
+    if (fdt_size)
+        *fdt_size = size;
 
-	/*
-	 * Load the kernel if a filename is specified in the VM manifest.
-	 * For an FF-A partition, kernel_filename is undefined indicating
-	 * the partition package has already been loaded prior to Hafnium
-	 * booting.
-	 */
-	if (!string_is_empty(&manifest_vm->kernel_filename)) {
-		if (!load_kernel(stage1_locked, primary_begin, primary_end,
-				 manifest_vm, cpio, ppool, NULL)) {
-			dlog_error("Unable to load primary kernel.\n");
-			return false;
-		}
-	}
+    /* FDT buffer allocation & VM mapping handled by us */
+    if (begin.pa == pa_init(0).pa || end.pa == pa_init(0).pa) {
+        dlog_debug("allocating memory for FDT (size=%#x)\n", size);
 
-	if (!vm_init_next(MAX_CPUS, ppool, &vm)) {
-		dlog_error("Unable to initialise primary VM.\n");
-		return false;
-	}
+        /* force buffer allocation to match FDT's IPA */
+        if (manifest_vm->identity_mapping) {
+            begin = pa_from_ipa(ipa_begin);
+            end   = pa_from_ipa(ipa_add(ipa_begin, size));
 
-	if (vm->id != HF_PRIMARY_VM_ID) {
-		dlog_error("Primary VM was not given correct ID.\n");
-		return false;
-	}
+            ans_p = mm_identity_map_and_reserve(
+                        stage1_locked, begin, end, MM_MODE_R | MM_MODE_W, ppool);
+            RET(!ans_p, false, "unable to create direct mapping: [%#x - %#x]\n",
+                begin.pa, end.pa);
+        } else {
+            begin = pa_init(pma_alloc(stage1_locked.ptable, ipa_begin, size,
+                                MM_MODE_R | MM_MODE_W, HYPERVISOR_ID, ppool));
+        }
 
-	vm_locked = vm_lock(vm);
+        RET(begin.pa == pma_get_fault_ptr(), false,
+            "unable to allocate memory for VM's FDT\n");
 
-	if (params->device_mem_ranges_count == 0) {
-		/*
-		 * Map 1TB of address space as device memory to, most likely,
-		 * make all devices available to the primary VM.
-		 *
-		 * TODO: remove this once all targets provide valid ranges.
-		 */
-		dlog_warning(
-			"Device memory not provided, defaulting to 1 TB.\n");
+        ans = copy_to_allocated(begin, &fdt);
+        RET(!ans, false, "unable to copy FDT from CPIO\n");
 
-		if (!vm_identity_map(
-			    vm_locked, pa_init(0),
-			    pa_init(UINT64_C(1024) * 1024 * 1024 * 1024),
-			    MM_MODE_R | MM_MODE_W | MM_MODE_D, ppool, NULL)) {
-			dlog_error(
-				"Unable to initialise address space for "
-				"primary VM.\n");
-			ret = false;
-			goto out;
-		}
-	}
+        /* assign HV allocated buffer (containing FDT) to the VM              *
+         * NOTE: unmapping the FDT buffer from the HV page table is premature *
+         *       at this point. future accesses (probably from fdt_patch.c)   *
+         *       cause a same-level read access exception. not sure that      *
+         *       we're cleaning it up before starting the VM.                 */
+        pma_assign(&manifest_vm->vm->ptable, begin.pa, ipa_begin,
+                   pma_get_size(begin.pa, HYPERVISOR_ID), MM_MODE_R,
+                   manifest_vm->vm->id, ppool);
+        pma_free(stage1_locked.ptable, begin.pa, HYPERVISOR_ID, ppool);
 
-	/* Map normal memory as such to permit caching, execution, etc. */
-	for (i = 0; i < params->mem_ranges_count; ++i) {
-		if (!vm_identity_map(vm_locked, params->mem_ranges[i].begin,
-				     params->mem_ranges[i].end,
-				     MM_MODE_R | MM_MODE_W | MM_MODE_X, ppool,
-				     NULL)) {
-			dlog_error(
-				"Unable to initialise memory for primary "
-				"VM.\n");
-			ret = false;
-			goto out;
-		}
-	}
+        /* update manifest with newly allocated buffer info */
+        manifest_vm->fdt_addr_pa = begin;
+        manifest_vm->fdt_size    = size;
+    }
+    /* FDT buffer allocation & VM mapping already handled by caller */
+    else {
+        RET(pa_difference(begin, end) < size, false,
+            "FDT larger than available memory\n");
 
-	/* Map device memory as such to prevent execution, speculation etc. */
-	for (i = 0; i < params->device_mem_ranges_count; ++i) {
-		if (!vm_identity_map(
-			    vm_locked, params->device_mem_ranges[i].begin,
-			    params->device_mem_ranges[i].end,
-			    MM_MODE_R | MM_MODE_W | MM_MODE_D, ppool, NULL)) {
-			dlog("Unable to initialise device memory for primary "
-			     "VM.\n");
-			ret = false;
-			goto out;
-		}
-	}
+        ans = copy_to_allocated(begin, &fdt);
+        RET(!ans, false, "unable to copy FDT from CPIO\n");
+    }
 
-	if (!load_common(stage1_locked, vm_locked, manifest_vm, ppool)) {
-		ret = false;
-		goto out;
-	}
+    /* if replacing an existing FDT, update kernel's boot parameters as well */
+    if (pa_addr(manifest_vm->fdt_addr_pa) != *boot_kernel_arg) {
+        dlog_debug("new fdt set in kernel_args: %#x\n", ipa_addr(ipa_begin));
+        *boot_kernel_arg = ipa_addr(ipa_begin);
+    }
 
-	if (!vm_unmap_hypervisor(vm_locked, ppool)) {
-		dlog_error("Unable to unmap hypervisor from primary VM.\n");
-		ret = false;
-		goto out;
-	}
+    return true;
+}
 
-	if (!plat_iommu_unmap_iommus(vm_locked, ppool)) {
-		dlog_error("Unable to unmap IOMMUs from primary VM.\n");
-		ret = false;
-		goto out;
-	}
+/* load_kernel - Loads the VM's kernel
+ *  @stage1_locked : Currently locked stage-1 page table of the HV
+ *  @begin         : kernel buffer start address (NULL if not yet allocated)
+ *  @end           : kernel buffer end address (NULL if not yet allocated)
+ *  @ipa_begin     : Guest physical address where kernel is mapped
+ *  @manifest_vm   : Ptr to the VM manifest structure
+ *  @cpio          : Ptr to the CPIO archive containing the kernel
+ *  @ppool         : Memory pool
+ *  @kernel_size   : Location where kernel size is stored (can be NULL)
+ *
+ *  @return : true if everything went well; false otherwise
+ *
+ * Details on the ARM kernel image header:
+ *  1) https://www.kernel.org/doc/html/latest/arm64/booting.html
+ *  2) http://weng-blog.com/2017/03/linux-kernel-image/
+ */
+static bool
+load_kernel(struct mm_stage1_locked stage1_locked,
+            paddr_t                 begin,
+            paddr_t                 end,
+            ipaddr_t                ipa_begin,
+            struct manifest_vm      *manifest_vm,
+            const struct memiter    *cpio,
+            struct mpool            *ppool,
+            size_t                  *kernel_size)
+{
+    const struct __attribute__((packed)) {
+        uint32_t code0;       /* executable code                        */
+        uint32_t code1;       /* executable code                        */
+        uint64_t text_offset; /* image load offset, little endian       */
+        uint64_t image_size;  /* effective image size, little endian    */
+        uint64_t flags;       /* kernel flags, little endian            */
+        uint64_t : 64;        /* reserved                               */
+        uint64_t : 64;        /* reserved                               */
+        uint64_t : 64;        /* reserved                               */
+        uint32_t ih_magic;    /* 0x644d5241 magic number, little endian */
+        uint32_t : 32;        /* reserved (used for PE COFF offset)     */
+    } *hdrptr;      /* ARM kernel image header */
 
-	dlog_info("Loaded primary VM with %u vCPUs, entry at %#x.\n",
-		  vm->vcpu_count, pa_addr(primary_begin));
+    struct memiter kernel;    /* kernel buffer                           */
+    size_t         memsize;   /* kernel buffer size (may include header) */
+    size_t         filesize;  /* kernel image size (w/o header)          */
+    void           *ans_p;    /* answer                                  */
+    bool           ans;       /* answer                                  */
 
-	/* Mark the primary to be the first booted VM */
-	vm_update_boot(vm);
+    /* determine size & location of kernel file / image in CPIO archive */
+    ans = cpio_get_file(cpio, &manifest_vm->kernel_filename, &kernel);
+    RET(!ans, false, "unable to find kenrel file \"%s\"\n",
+        string_data(&manifest_vm->kernel_filename));
 
-	vcpu_locked = vcpu_lock(vm_get_vcpu(vm, 0));
-	vcpu_on(vcpu_locked, primary_entry, params->kernel_arg);
-	vcpu_unlock(&vcpu_locked);
-	ret = true;
+    hdrptr   = (void *) memiter_base(&kernel);
+    filesize = memiter_size(&kernel);
+    memsize  = (hdrptr->ih_magic == 0x644d5241) ? hdrptr->image_size
+                                                : filesize;
+    if (kernel_size)
+        *kernel_size = memsize;
+
+    /* kernel buffer allocation & VM mapping handled by us */
+    if (begin.pa == pa_init(0).pa || end.pa == pa_init(0).pa) {
+        dlog_debug("allocating memory for kernel (filesize=%#x, memsize=%#x)\n",
+                   filesize, memsize);
+
+        /* NOTE: image must be placed at text_offset from a 2MB-aligned *
+         *       base address; see [1] for details                      */
+
+        /* force buffer allocation to match kernel's IPA */
+        if (manifest_vm->identity_mapping) {
+            begin = pa_from_ipa(ipa_begin);
+            end   = pa_from_ipa(ipa_add(ipa_begin, memsize));
+
+            ans_p = mm_identity_map_and_reserve(stage1_locked, begin, end,
+                        MM_MODE_R | MM_MODE_W | MM_MODE_X, ppool);
+            RET(!ans_p, false, "unable to create direct mapping: [%#x - %#x]\n",
+                begin.pa, end.pa);
+        } else {
+            begin = pa_init(pma_aligned_alloc(
+                                stage1_locked.ptable, ipa_begin,
+                                memsize, PAGE_LEVEL_BITS,
+                                MM_MODE_R | MM_MODE_W | MM_MODE_X,
+                                HYPERVISOR_ID, ppool));
+        }
+
+        RET(begin.pa == pma_get_fault_ptr(), false,
+            "unable to allocate memory for VM's kernel\n");
+
+        ans = copy_to_allocated(begin, &kernel);
+        RET(!ans, false, "unable to copy kernel from CPIO\n");
+
+        /* reassign HV allocated buffer (containing kernel) to the VM */
+        pma_assign(&manifest_vm->vm->ptable, begin.pa, ipa_begin,
+                   pma_get_size(begin.pa, HYPERVISOR_ID),
+                   MM_MODE_R | MM_MODE_W | MM_MODE_X,
+                   manifest_vm->vm->id, ppool);
+        pma_free(stage1_locked.ptable, begin.pa, HYPERVISOR_ID, ppool);
+
+        /* update manifest with newly allocated buffer info */
+        manifest_vm->boot_address     = ipa_addr(ipa_begin);
+        manifest_vm->kernel_addr_pa   = begin;
+        manifest_vm->kernel_size      = memsize;
+        manifest_vm->kernel_file_size = filesize;
+    }
+    /* kernel buffer allocation & VM mapping already handled by caller */
+    else {
+        RET(pa_difference(begin, end) < memsize, false,
+            "kernel larger than available memory\n");
+
+        ans = copy_to_unmapped(stage1_locked, begin, &kernel, ppool);
+        RET(!ans, false, "unable to copy kernel from CPIO\n");
+    }
+
+    return true;
+}
+
+/* load_ramdisk - Loads the VM's ramdisk
+ *  @stage1_locked   : Currently locked stage-1 page table of the HV
+ *  @begin           : ramdisk buffer start address (NULL if not yet allocated)
+ *  @end             : ramdisk buffer end address (NULL if not yet allocated)
+ *  @ipa_begin       : Guest physical address where ramdisk is mapped
+ *  @manifest_vm     : Ptr to the VM manifest structure
+ *  @cpio            : Ptr to the CPIO archive containing the ramdisk
+ *  @ppool           : Memory pool
+ *  @fdt_size        : Location where ramdisk size is stored (can be NULL)
+ *
+ *  @return : true if everything went well; false otherwise
+ */
+static bool
+load_ramdisk(struct mm_stage1_locked stage1_locked,
+             paddr_t                 begin,
+             paddr_t                 end,
+             ipaddr_t                ipa_begin,
+             struct manifest_vm      *manifest_vm,
+             const struct memiter    *cpio,
+             struct mpool            *ppool,
+             size_t                  *ramdisk_size)
+{
+    struct memiter ramdisk;  /* ramdisk buffer */
+    size_t         size;     /* ramdisk size   */
+    void           *ans_p;   /* answer         */
+    bool           ans;      /* answer         */
+
+    /* determine size & location of ramdisk file in CPIO archive */
+    ans = cpio_get_file(cpio, &manifest_vm->ramdisk_filename, &ramdisk);
+    RET(!ans, false, "unable to find ramdisk file \"%s\"\n",
+        string_data(&manifest_vm->ramdisk_filename));
+
+    size = memiter_size(&ramdisk);
+    if (ramdisk_size)
+        *ramdisk_size = size;
+
+    /* ramdisk buffer allocation & VM mapping handled by us */
+    if (begin.pa == pa_init(0).pa || end.pa == pa_init(0).pa) {
+        dlog_debug("allocating memory for ramdisk (size=%#x)\n", size);
+
+        /* force buffer allocation to match ramdisk's IPA */
+        if (manifest_vm->identity_mapping) {
+            begin = pa_from_ipa(ipa_begin);
+            end   = pa_from_ipa(ipa_add(ipa_begin, size));
+
+            ans_p = mm_identity_map_and_reserve(stage1_locked, begin, end,
+                        MM_MODE_R | MM_MODE_W | MM_MODE_X, ppool);
+            RET(!ans_p, false, "unable to create direct mapping: [%#x - %#x]\n",
+                begin.pa, end.pa);
+        } else {
+            begin = pa_init(pma_aligned_alloc(
+                                stage1_locked.ptable, ipa_begin,
+                                size, PAGE_LEVEL_BITS,
+                                MM_MODE_R | MM_MODE_W | MM_MODE_X,
+                                HYPERVISOR_ID, ppool));
+        }
+
+        RET(begin.pa == pma_get_fault_ptr(), false,
+            "unable to allocate memory for VM's ramdisk\n");
+
+        ans = copy_to_allocated(begin, &ramdisk);
+        RET(!ans, false, "unable to copy ramdisk from CPIO\n");
+
+        /* reassign HV allocated buffer (containing ramdisk) to the VM */
+        pma_assign(&manifest_vm->vm->ptable, begin.pa, ipa_begin,
+                   pma_get_size(begin.pa, HYPERVISOR_ID),
+                   MM_MODE_R | MM_MODE_W | MM_MODE_X,
+                   manifest_vm->vm->id, ppool);
+        pma_free(stage1_locked.ptable, begin.pa, HYPERVISOR_ID, ppool);
+
+        /* update manifest with newly allocated buffer info */
+        manifest_vm->ramdisk_addr_pa = begin;
+        manifest_vm->ramdisk_size    = size;
+    }
+    /* ramdisk buffer allocation & VM mapping already handled by caller */
+    else {
+        RET(pa_difference(begin, end) < size, false,
+            "ramdisk larger than available memory\n");
+
+        ans = copy_to_unmapped(stage1_locked, begin, &ramdisk, ppool);
+        RET(!ans, false, "unable to copy ramdisk from CPIO\n");
+    }
+
+    return true;
+}
+
+/* load_common - Common initialization path for primary / secondary VMs
+ *  @stage1_locked   : Currently locked stage-1 page table of the HV
+ *  @vm_locked       : Currently locked VM
+ *  @manifest_vm     : Ptr to the VM manifest structure
+ *  @ppool           : Memory pool
+ *
+ *  @return : true if everything went well; false otherwise
+ */
+static bool
+load_common(struct mm_stage1_locked stage1_locked,
+            struct vm_locked        vm_locked,
+            struct manifest_vm      *manifest_vm,
+            struct mpool            *ppool)
+{
+    struct device_region        *dev_region; /* memory mapped device region   */
+    struct interrupt            interrupt;   /* interrupt associated to dev   */
+    struct interrupt_descriptor int_desc;    /* interrupt descriptor          */
+    uint64_t                    vm_int = 0;  /* VM physical interrupts        */
+    bool                        ans;         /* answer                        */
+
+    vm_locked.vm->smc_whitelist = manifest_vm->smc_whitelist;
+    vm_locked.vm->uuid          = manifest_vm->uuid;
+
+    /* handle interrupt allocations for each device */
+    for (size_t i = 0; i < manifest_vm->dev_region_count; i++) {
+        dev_region = &manifest_vm->dev_regions[i];
+
+        dlog_info("VM: %#x, device region: %d, name: %s\n",
+                  manifest_vm->vm->id, i, dev_region->name);
+
+        /* check for exceeded interrupt allowance (per dev / VM) */
+        DIE(dev_region->interrupt_count > SP_MAX_INTERRUPTS_PER_DEVICE,
+            "device %d exceeded assigned interrupt quota\n", i);
+        DIE(vm_int + dev_region->interrupt_count > VM_MANIFEST_MAX_INTERRUPTS,
+            "VM %#x exceeded assigned interrupt quota\n",
+            manifest_vm->vm->id);
+
+        /* register each interrupt assigned to current device */
+        for (size_t j = 0; j < dev_region->interrupt_count; j++) {
+            interrupt = dev_region->interrupts[j];
+            int_desc  = infer_interrupt(interrupt);
+
+            vm_locked.vm->interrupt_desc[vm_int++] = int_desc;
+
+            /* configure the physical interrupt */
+            plat_interrupts_configure_interrupt(int_desc);
+        }
+    }
+
+    dlog_verbose("VM %#x has %d physical interrupts defined in manifest.\n",
+                 manifest_vm->vm->id, vm_int);
+
+    /* initialize architecture-specific features. */
+    arch_vm_features_set(vm_locked.vm);
+    ans = plat_iommu_attach_peripheral(stage1_locked, vm_locked,
+                                       manifest_vm, ppool);
+    RET(!ans, false, "unable to attach upstream peripheral device\n");
+
+    return true;
+}
+
+/* load_vm - Helper function that initializes a single VM
+ *  @stage1_locked : Currently locked stage-1 page table of the HV
+ *  @manifest_vm   : Manifest data pertaining to the VM in question
+ *  @vm            : Target VM
+ *  @cpio          : Ptr to the CPIO archive
+ *  @params        : Kernel boot settings
+ *  @ppool         : Memory pool
+ *
+ *  @return : true if everything went well; false otherwise
+ */
+static bool
+load_vm(struct mm_stage1_locked stage1_locked,
+        struct manifest_vm      *manifest_vm,
+        struct vm               *vm,
+        const struct memiter    *cpio,
+        struct boot_params      *params,
+        struct mpool            *ppool)
+{
+    uintpaddr_t        *component_begin[3] = { NULL, NULL, NULL };
+    size_t             *component_size[3]  = { NULL, NULL, NULL };
+    paddr_t            kernel_start;     /* kernel start (physical) addr     */
+    paddr_t            kernel_end;       /* kernel end   (physical) addr     */
+    ipaddr_t           kernel_entry;     /* kernel IPA entry point           */
+    uintpaddr_t        ipa_vm_mem_begin; /* VM's IPA region start            */
+    uintpaddr_t        ipa_vm_mem_end;   /* VM's IPA region end              */
+    uintpaddr_t        freeram_begin;    /* start of empty RAM region IPA    */
+    size_t             freeram_size;     /* size of empty RAM region         */
+    uintptr_t          freeram_ptr;      /* result of RAM region mapping     */
+    struct vm_locked   vm_locked;        /* currently locked VM structure    */
+    struct vcpu_locked vcpu_locked;      /* currently locked vCPU structure  */
+    paddr_t            begin;            /* start address of a memory region */
+    paddr_t            end;              /* end address of a memory region   */
+    paddr_t            vgic_end;         /* end address of virtual GIC       */
+    bool               ret;              /* function's return value          */
+    bool               ans;              /* answer                           */
+    void               *ans_p;           /* answer                           */
+
+    /* determine VM's kernel address ranges & entry point */
+    kernel_start = (manifest_vm->boot_address == MANIFEST_INVALID_ADDRESS)
+                 ? layout_primary_begin()
+                 : pa_init(manifest_vm->boot_address);
+    kernel_entry = ipa_from_pa(kernel_start);
+
+    kernel_end = pa_add(kernel_start, (size_t) RSIZE_MAX);
+
+    dlog_debug("VM: %#x, kernel (\"%s\") address: %#x - %#x\n",
+               vm->id, string_data(&manifest_vm->kernel_filename),
+               kernel_start, kernel_end);
+
+    /* TODO: confirm that we are definitively replacing core selection *
+     *       with a build time solution; also, implement that solution *
+     * NOTE: whatever decision we make for deciding the VM IPA range,  *
+     *       it needs to be consistent with the CPU paching one        */
+
+    /* lock resource while configuring VM */
+    vm_locked = vm_lock(vm);
+    manifest_vm->vm = vm;
+
+    /* from now on, assume something will go wrong */
+    ret = false;
+
+    /* the amount of RAM that is made known to the VM is specified in the
+     * manifest. however, the starting Guest Physical Address (i.e. IPA)
+     * is decided here, based on which component is supposed to be mapped
+     * at the lowest address. note that these must coincide with the reg
+     * values of the `memory` node in the FDT (which is hardcoded).
+     *
+     * TODO: fix this mess
+     */
+    if (manifest_vm->mem_layout.kernel < manifest_vm->mem_layout.fdt
+    &&  manifest_vm->mem_layout.kernel < manifest_vm->mem_layout.ramdisk)
+    {
+        ipa_vm_mem_begin  = manifest_vm->mem_layout.kernel;
+        component_size[0] = &manifest_vm->kernel_size;
+    } else if (manifest_vm->mem_layout.fdt < manifest_vm->mem_layout.kernel
+           &&  manifest_vm->mem_layout.fdt < manifest_vm->mem_layout.ramdisk)
+    {
+        ipa_vm_mem_begin  = manifest_vm->mem_layout.fdt;
+        component_size[0] = &manifest_vm->fdt_size;
+    } else {
+        ipa_vm_mem_begin  = manifest_vm->mem_layout.ramdisk;
+        component_size[0] = &manifest_vm->ramdisk_size;
+    }
+    component_begin[0] = &ipa_vm_mem_begin;
+    ipa_vm_mem_end     = ipa_vm_mem_begin + manifest_vm->memory_size;
+
+
+    /* kernel sanity checks */
+    GOTO(string_is_empty(&manifest_vm->kernel_filename), out,
+         "VM: %#x, no kernel specified\n", vm->id);
+    GOTO(manifest_vm->mem_layout.kernel + manifest_vm->kernel_size
+         > ipa_vm_mem_end,
+         out, "VM: %#x, kernel falls outside IPA range\n", vm->id);
+
+    /* load the kernel */
+    ans = load_kernel(stage1_locked, pa_init(0), pa_init(0),
+                      ipa_init(manifest_vm->mem_layout.kernel),
+                      manifest_vm, cpio, ppool, NULL);
+    GOTO(!ans, out, "VM: %#x, unable to load kernel \"%s\"\n",
+         vm->id, string_data(&manifest_vm->kernel_filename));
+
+    /* update ordered list of components */
+    if (*component_begin[0] != manifest_vm->mem_layout.kernel) {
+        component_begin[1] = &manifest_vm->mem_layout.kernel;
+        component_size[1]  = &manifest_vm->kernel_size;
+    }
+
+    dlog_debug("VM: %#x, kernel has been loaded\n");
+
+
+    /* FDT sanity checks */
+    GOTO(string_is_empty(&manifest_vm->fdt_filename), fdt_load_done,
+         "VM: %#x, skipping unspecified FDT\n", vm->id);
+    GOTO(manifest_vm->mem_layout.fdt
+         + pma_get_size(pa_addr(manifest_vm->fdt_addr_pa), manifest_vm->vm->id)
+         > ipa_vm_mem_end,
+         out, "VM: %#x, FDT falls outside IPA range\n", vm->id);
+    GOTO(manifest_vm->mem_layout.fdt == MANIFEST_INVALID_ADDRESS,
+         out, "VM: %#x, FDT IPA not specified in manifest\n", vm->id);
+
+    /* load the FDT */
+    ans =  load_fdt(stage1_locked, pa_init(0), pa_init(0),
+                    ipa_init(manifest_vm->mem_layout.fdt),
+                    manifest_vm, cpio, ppool, NULL, &(params->kernel_arg));
+    GOTO(!ans, out, "VM: %#x, unable to load FDT \"%s\"\n",
+         vm->id, string_data(&manifest_vm->fdt_filename));
+
+    /* update ordered list of compoenents */
+    if (*component_begin[0] != manifest_vm->mem_layout.fdt) {
+        /* fdt is not first component */
+        if (component_begin[1] == NULL) {
+            /* this case is entered if kernel is first */
+            component_begin[1] = &manifest_vm->mem_layout.fdt;
+            component_size[1]  = &manifest_vm->fdt_size;
+
+        } else if (manifest_vm->mem_layout.fdt < *component_begin[1]) {
+            /* ramdisk is first and kernel has higher address than fdt */
+            component_begin[2] = component_begin[1];
+            component_size[2]  = component_size[1];
+            component_begin[1] = &manifest_vm->mem_layout.fdt;
+            component_size[1]  = &manifest_vm->fdt_size;
+        } else {
+            /* ramdisk is first and kernel has lower address than fdt */
+            component_begin[2] = &manifest_vm->mem_layout.fdt;
+            component_size[2]  = &manifest_vm->fdt_size;
+        }
+    }
+
+    dlog_debug("VM: %#x, FDT has been loaded\n");
+
+fdt_load_done:
+
+    /* ramdisk sanity checks */
+    GOTO(string_is_empty(&manifest_vm->ramdisk_filename), ramdisk_load_done,
+         "VM: %#x, skipping unspecified ramdisk\n", vm->id);
+    GOTO(manifest_vm->mem_layout.ramdisk
+         + pma_get_size(pa_addr(manifest_vm->ramdisk_addr_pa),
+                        manifest_vm->vm->id)
+         > ipa_vm_mem_end,
+         out, "VM: %#x, ramdisk falls outisde IPA range\n", vm->id);
+    GOTO(manifest_vm->mem_layout.ramdisk == MANIFEST_INVALID_ADDRESS,
+         out, "VM: %#x, ramdisk IPA not specified in manifest\n", vm->id);
+
+    /* load the ramdisk */
+    ans =  load_ramdisk(stage1_locked, pa_init(0), pa_init(0),
+            ipa_init(manifest_vm->mem_layout.ramdisk),
+            manifest_vm, cpio, ppool, NULL);
+    GOTO(!ans, out, "VM: %#x, unable to load ramdisk \"%s\"\n",
+        vm->id, string_data(&manifest_vm->ramdisk_filename));
+
+    /* save ramdisk region limits to inform kernel at boot */
+        params->initrd_begin.pa = pa_addr(manifest_vm->ramdisk_addr_pa);
+        params->initrd_end.pa   = pa_addr(manifest_vm->ramdisk_addr_pa) +
+                                  pma_get_size(
+                                    pa_addr(manifest_vm->ramdisk_addr_pa),
+                                    manifest_vm->vm->id);
+
+    /* update ordered list of compoenents */
+    if (*component_begin[0] != manifest_vm->mem_layout.ramdisk) {
+        /* ramdisk is not first component, so add it at correct position */
+        if (component_begin[1] == NULL) {
+            /* this case is entered if kernel is first and VM has no fdt */
+            component_begin[1] = &manifest_vm->mem_layout.ramdisk;
+            component_size[1]  = &manifest_vm->ramdisk_size;
+
+        } else if (manifest_vm->mem_layout.ramdisk < *component_begin[1]) {
+             /* ramdisk has lower address than second component */
+            component_begin[2] = component_begin[1];
+            component_size[2]  = component_size[1];
+            component_begin[1] = &manifest_vm->mem_layout.ramdisk;
+            component_size[1]  = &manifest_vm->ramdisk_size;
+        } else {
+             /* ramdisk has highest address */
+            component_begin[2] = &manifest_vm->mem_layout.ramdisk;
+            component_size[2]  = &manifest_vm->ramdisk_size;
+        }
+    }
+
+    dlog_debug("VM: %#x, ramdisk has been loaded\n");
+
+ramdisk_load_done:
+
+    /* check memory layout for potential component overlap */
+    for (size_t i = 0; i < 2 && component_begin[i + 1]; i++) {
+        GOTO(*component_begin[i] + *component_size[i] > *component_begin[i + 1],
+             out, "VM: %#x, invalid memory layout\n", vm->id);
+    }
+
+    /* map the gaps between components as free RAM */
+    dlog_debug("VM: %#x, allocating free memory space\n", vm->id);
+    for (size_t i = 0; i < 3 && component_begin[i]; i++) {
+        freeram_begin = mm_round_up_to_page(*component_begin[i] +
+                                            *component_size[i]);
+        freeram_size  = mm_round_down_to_page(
+                            (i == 2 || component_begin[i + 1] == NULL)
+                            ? ipa_vm_mem_end - freeram_begin
+                            : *component_begin[i + 1] - freeram_begin);
+        if (!freeram_size)
+            continue;
+
+        if (manifest_vm->identity_mapping) {
+            begin = pa_init(freeram_begin);
+            end   = pa_add(begin, freeram_size);
+
+            freeram_ptr = vm_identity_map_and_reserve(vm_locked, begin, end,
+                                MM_MODE_R | MM_MODE_W | MM_MODE_X, ppool, NULL);
+            GOTO(!freeram_ptr, out, "VM: %#x, unable to create direct mapping "
+                 "[%#x - %#x]\n", vm->id, begin.pa, end.pa);
+        } else {
+            freeram_ptr = pma_aligned_alloc_with_split(&vm_locked.vm->ptable,
+                            ipa_init(freeram_begin), freeram_size,
+                            PMA_ALIGN_AUTO_PAGE_LVL,
+                            MM_MODE_R | MM_MODE_W | MM_MODE_X,
+                            vm->id, ppool, 16);
+            GOTO(freeram_ptr == pma_get_fault_ptr(), out,
+                 "VM: %#x, unable to allocate freeram memory\n", vm->id);
+        }
+    }
+
+    /* map GIC to hypervisor, not to primary VM                     *
+     * NOTE: check project/sanctuary/BUILD.gn for GIC_* definitions *
+     *       also, look at build/toolchain/embedded.gni             *
+     *                                                              *
+     * TODO: is it ok to double map the GIC to the HV page table?   *
+     *       this happens if any secondary VMs are present.         */
+    ans_p = mm_identity_map(stage1_locked,
+                            pa_init(GIC_START), pa_init(GIC_END),
+                            MM_MODE_R | MM_MODE_W | MM_MODE_D, ppool);
+    GOTO(!ans_p, out, "unable to map GIC to hypervisor address space\n");
+    dlog_debug("GIC mapped to hypervisor address space: [%#x - %#x]\n",
+               GIC_START, GIC_END);
+
+
+    /* vGIC sanity checks                                    *
+     * NOTE: assume that vGIC is unmapped until proven wrong */
+    manifest_vm->vm->vgic = NULL;
+
+    GOTO(manifest_vm->mem_layout.gic == MANIFEST_INVALID_ADDRESS, gic_load_done,
+         "VM: %#x, vGIC mapping not specified in manifest\n", vm->id);
+    GOTO(manifest_vm->mem_layout.gic + (sizeof(struct virt_gic)) - 1
+         >= manifest_vm->mem_layout.kernel
+      && manifest_vm->mem_layout.kernel + manifest_vm->memory_size
+         > manifest_vm->mem_layout.gic,
+         out, "VM: %#x, vGIC must reside outisde VM's RAM IPA range\n", vm->id);
+
+    /* allocate memory for vGIC */
+    manifest_vm->vm->vgic = (void *) pma_aligned_alloc(stage1_locked.ptable,
+                                        ipa_init(manifest_vm->mem_layout.gic),
+                                        sizeof(struct virt_gic),
+                                        PMA_ALIGN_AUTO_PAGE_LVL,
+                                        MM_MODE_R | MM_MODE_W | MM_MODE_D,
+                                        HYPERVISOR_ID, ppool);
+    GOTO(((uintptr_t) manifest_vm->vm->vgic) == pma_get_fault_ptr(),
+         out, "VM: %#x, unable to allocate vGIC physical memory\n", vm->id);
+
+    /* map vGIC to VM's IPA space */
+    vgic_end = pa_init((uintpaddr_t)(manifest_vm->vm->vgic) +
+                               (uintpaddr_t)(sizeof(struct virt_gic)) - 1);
+
+    ans = mm_vm_prepare(&manifest_vm->vm->ptable,
+                        ipa_init(manifest_vm->mem_layout.gic),
+                        pa_init((uintpaddr_t) manifest_vm->vm->vgic),
+                        vgic_end, MM_MODE_D, ppool);
+    GOTO(!ans, out, "VM: %#x, unable to map vGIC to VM's page table\n", vm->id);
+
+    mm_vm_commit(&manifest_vm->vm->ptable,
+                 ipa_init(manifest_vm->mem_layout.gic),
+                 pa_init((uintpaddr_t) manifest_vm->vm->vgic),
+                 vgic_end, MM_MODE_D, ppool, NULL);
+    init_vgic(manifest_vm->vm);
+
+    dlog_debug("VM: %#x, vGIC mapped to VM's IPA space\n", vm->id);
+
+gic_load_done:
+
+
+#if RELEASE == 0
+    pma_print_chunks();
+#endif
+
+    /* save the allocated memory chunks                   *
+     * (i.e.: kernel memory, ramdisk, etc.) as mem_ranges */
+    for (size_t i = 0; i < params->mem_ranges_count; ++i) {
+        params->mem_ranges[i].begin = pa_init(0);
+        params->mem_ranges[i].end   = pa_init(0);
+    }
+
+    /* store allocated IPA memory range in VM struct */
+    manifest_vm->vm->ipa_mem_begin = ipa_init(manifest_vm->mem_layout.kernel);
+    manifest_vm->vm->ipa_mem_end   = ipa_add(manifest_vm->vm->ipa_mem_begin,
+                                             manifest_vm->memory_size);
+
+    /* map device memory as non-executable */
+    for (size_t i = 0; i < params->device_mem_ranges_count; ++i) {
+        ans = vm_identity_map(vm_locked, params->device_mem_ranges[i].begin,
+                              params->device_mem_ranges[i].end,
+                              MM_MODE_R | MM_MODE_W | MM_MODE_D,
+                              ppool, NULL);
+        GOTO(!ans, out, "VM: %#x, unable to initialize dev memory\n", vm->id);
+    }
+
+    /* initialize backing physical devices for virtual device instances *
+     * most require mapping them to the hypervisor, not individual VMs  *
+     *                                                                  *
+     * NOTE: vGIC gets special treatment for now                        */
+    ans = init_backing_devs(stage1_locked, ppool);
+    GOTO(ans, out, "VM: %#x, unable to initialize backing physical "
+         "devs for emulation\n", vm->id);
+
+    /* initialize virtual devices */
+    ans = init_virt_devs();
+    GOTO(ans, out, "VS: %#x, unable to initialize virtual devices\n", vm->id);
+
+    dlog_debug("VM: %#x, loaded with %u vCPUs, entry at PA=%#x IPA=%#x.\n",
+               vm->id, vm->vcpu_count, pa_addr(kernel_start),
+               manifest_vm->boot_address);
+
+    /* add intialized VM to boot list  *
+     * assume boot order set by caller */
+    vm_update_boot(vm);
+
+    /* initialize VM's primary vCPU state */
+    vcpu_locked = vcpu_lock(vm_get_vcpu(vm, 0));
+
+    vcpu_on(vcpu_locked, ipa_from_pa(pa_init(manifest_vm->boot_address)),
+            params->kernel_arg);
+    vcpu_unlock(&vcpu_locked);
+
+    /* success */
+    ret = true;
 
 out:
-	vm_unlock(&vm_locked);
+    vm_unlock(&vm_locked);
 
-	return ret;
+    return ret;
 }
 
-/**
- * Loads the secondary VM's FDT.
- * Stores the total allocated size for the FDT in fdt_allocated_size (if
- * fdt_allocated_size is not NULL). The allocated size includes additional space
- * for potential patching.
+/* load_vms - Initializes all VMs but does not start them
+ *  @stage1_locked : Currently locked stage-1 page table of the HV
+ *  @manifest      : Manifest data pertaining to all VMs (and more)
+ *  @cpio          : Ptr to the CPIO archive
+ *  @boot_params   : Ptr to kernel boot parameters (not boot args)
+ *  @update        : Ptr to kernel boot parameters that need updating
+ *  @ppool         : Memory pool
+ *
+ *  @return : true if everything went well; false otherwise
  */
-static bool load_secondary_fdt(struct mm_stage1_locked stage1_locked,
-			       paddr_t end, size_t fdt_max_size,
-			       const struct manifest_vm *manifest_vm,
-			       const struct memiter *cpio, struct mpool *ppool,
-			       paddr_t *fdt_addr, size_t *fdt_allocated_size)
+bool
+load_vms(struct mm_stage1_locked   stage1_locked,
+         struct manifest           *manifest,
+         const struct memiter      *cpio,
+         struct boot_params        *params,
+         struct boot_params_update *update __attribute__((unused)),
+         struct mpool              *ppool)
 {
-	struct memiter fdt;
-	size_t allocated_size;
+    struct manifest_vm *manifest_vm;  /* VM-specific manifest data     */
+    struct vm          *primary_vm;   /* ptr to primary VM (aka. dom0) */
+    struct vm          *vm;           /* iterator over secondary VMs   */
+    uint16_t           vm_id;         /* secondary VM id               */
+    bool               ans;           /* answer                        */
 
-	CHECK(!string_is_empty(&manifest_vm->secondary.fdt_filename));
+    /* sanity check: we need at least the primary VM */
+    RET(!manifest->vm_count, false,
+        "expected at least primary VM in manifest\n");
 
-	if (!cpio_get_file(cpio, &manifest_vm->secondary.fdt_filename, &fdt)) {
-		dlog_error("Cannot open the secondary VM's FDT.\n");
-		return false;
-	}
+    /* load primary VM */
+    ans = vm_init_next(manifest->vm[PG_PRIMARY_VM_INDEX].vcpu_count,
+                       manifest->vm[PG_PRIMARY_VM_INDEX].cpu_count,
+                       manifest->vm[PG_PRIMARY_VM_INDEX].cpus,
+                       ppool, &primary_vm);
+    RET(!ans, false, "unable to initialize primary VM\n");
 
-	/*
-	 * Ensure the FDT has one additional page at the end for patching, and
-	 * and align it to the page boundary.
-	 */
-	allocated_size = align_up(memiter_size(&fdt), PAGE_SIZE) + PAGE_SIZE;
+    ans = load_vm(stage1_locked, &manifest->vm[PG_PRIMARY_VM_INDEX],
+                  primary_vm, cpio, params, ppool);
+    RET(!ans, false, "unable to load primary VM\n");
 
-	if (allocated_size > fdt_max_size) {
-		dlog_error(
-			"FDT allocated space (%u) is more than the specified "
-			"maximum to use (%u).\n",
-			allocated_size, fdt_max_size);
-		return false;
-	}
+    /* load remaining secondary VMs */
+    for (size_t i = 0; i < manifest->vm_count - 1; ++i) {
+        vm_id       = PG_VM_ID_OFFSET + i;
+        manifest_vm = &manifest->vm[vm_id];
 
-	/* Load the FDT to the end of the VM's allocated memory space. */
-	*fdt_addr = pa_init(pa_addr(pa_sub(end, allocated_size)));
+        dlog_info("Loading VM id %#x: %s.\n",
+                  vm_id, manifest_vm->debug_name);
 
-	dlog_info("Loading secondary FDT of allocated size %u at 0x%x.\n",
-		  allocated_size, pa_addr(*fdt_addr));
+        ans = vm_init_next(manifest_vm->vcpu_count,
+                           manifest_vm->cpu_count,
+                           manifest_vm->cpus,
+                           ppool, &vm);
+        RET(!ans, false, "unable to initialize secondary VM %#x\n", vm_id);
 
-	if (!copy_to_unmapped(stage1_locked, *fdt_addr, &fdt, ppool)) {
-		dlog_error("Unable to copy FDT.\n");
-		return false;
-	}
+        ans = load_vm(stage1_locked, &manifest->vm[vm_id],
+                      vm, cpio, params, ppool);
+        RET(!ans, false, "unable to load secondary VM %#x\n", vm_id);
+    }
 
-	if (fdt_allocated_size) {
-		*fdt_allocated_size = allocated_size;
-	}
-
-	return true;
+    return true;
 }
 
-/*
- * Loads a secondary VM.
+/* load_devices - Maps physical devices & related interrupts to specific VM
+ *  @stage1_locked : Currently locked stage-1 page table of the HV
+ *  @manifest_vm   : Manifest data pertaining to the VM in question
+ *  @ppool         : Memory pool
+ *
+ *  @return : true if everything went well; false otherwise
  */
-static bool load_secondary(struct mm_stage1_locked stage1_locked,
-			   struct vm_locked primary_vm_locked,
-			   paddr_t mem_begin, paddr_t mem_end,
-			   const struct manifest_vm *manifest_vm,
-			   const struct memiter *cpio, struct mpool *ppool)
+bool
+load_devices(struct mm_stage1_locked stage1_locked,
+             struct manifest_vm      *manifest_vm,
+             struct mpool            *ppool)
 {
-	struct vm *vm;
-	struct vm_locked vm_locked;
-	struct vcpu_locked vcpu_locked;
-	struct vcpu *vcpu;
-	ipaddr_t secondary_entry;
-	bool ret;
-	paddr_t fdt_addr;
-	bool has_fdt;
-	size_t kernel_size = 0;
-	const size_t mem_size = pa_difference(mem_begin, mem_end);
+    struct vm_locked     vm_locked;   /* VM structure with acquired lock */
+    struct device_region *dev_region; /* identity mapped device region   */
+    bool                 ret;         /* function's return value         */
+    bool                 ans;         /* answer                          */
 
-	/*
-	 * Load the kernel if a filename is specified in the VM manifest.
-	 * For an FF-A partition, kernel_filename is undefined indicating
-	 * the partition package has already been loaded prior to Hafnium
-	 * booting.
-	 */
-	if (!string_is_empty(&manifest_vm->kernel_filename)) {
-		if (!load_kernel(stage1_locked, mem_begin, mem_end, manifest_vm,
-				 cpio, ppool, &kernel_size)) {
-			dlog_error("Unable to load kernel.\n");
-			return false;
-		}
-	}
+    /* acquire lock for this VM; assume worst is to happen from now on */
+    vm_locked = vm_lock(manifest_vm->vm);
+    ret       = false;
 
-	has_fdt = !string_is_empty(&manifest_vm->secondary.fdt_filename);
-	if (has_fdt) {
-		/*
-		 * Ensure that the FDT does not overwrite the kernel or overlap
-		 * its page, for the FDT to start at a page boundary.
-		 */
-		const size_t fdt_max_size =
-			mem_size - align_up(kernel_size, PAGE_SIZE);
+    dlog_debug("VM: %#x, assigning device memory\n", manifest_vm->vm->id);
 
-		size_t fdt_allocated_size;
+    /* map device memory to VM address space */
+    for (size_t i = 0; i < manifest_vm->dev_region_count; ++i) {
+        dev_region = &manifest_vm->dev_regions[i];
 
-		if (!load_secondary_fdt(stage1_locked, mem_end, fdt_max_size,
-					manifest_vm, cpio, ppool, &fdt_addr,
-					&fdt_allocated_size)) {
-			dlog_error("Unable to load FDT.\n");
-			return false;
-		}
+        ans = vm_identity_map(vm_locked, pa_init(dev_region->base_address),
+                              pa_init(dev_region->base_address +
+                                      (PAGE_SIZE * dev_region->page_count)),
+                              dev_region->attributes, ppool, NULL);
+        GOTO(!ans, out, "VM: %#x, unable to initialize device memory\n",
+             manifest_vm->vm->id);
+    }
 
-		if (!fdt_patch_mem(stage1_locked, fdt_addr, fdt_allocated_size,
-				   mem_begin, mem_end, ppool)) {
-			dlog_error("Unable to patch FDT.\n");
-			return false;
-		}
-	}
+    /* assign interrupts etc. */
+    ans = load_common(stage1_locked, vm_locked, manifest_vm, ppool);
+    GOTO(!ans, out, "VM: %#x, unable to configure interrupts\n",
+         manifest_vm->vm->id);
 
-	if (!vm_init_next(manifest_vm->secondary.vcpu_count, ppool, &vm)) {
-		dlog_error("Unable to initialise VM.\n");
-		return false;
-	}
-
-	vm_locked = vm_lock(vm);
-
-	/* Grant the VM access to the memory. */
-	if (!vm_identity_map(vm_locked, mem_begin, mem_end,
-			     MM_MODE_R | MM_MODE_W | MM_MODE_X, ppool,
-			     &secondary_entry)) {
-		dlog_error("Unable to initialise memory.\n");
-		ret = false;
-		goto out;
-	}
-
-	if (manifest_vm->is_ffa_partition) {
-		int j = 0;
-		paddr_t region_begin;
-		paddr_t region_end;
-		paddr_t alloc_base = mem_end;
-		size_t size;
-		size_t total_alloc = 0;
-
-		/* Map memory-regions */
-		while (j < manifest_vm->sp.mem_region_count) {
-			size = manifest_vm->sp.mem_regions[j].page_count *
-			       PAGE_SIZE;
-			/*
-			 * For memory-regions without base-address, memory
-			 * should be allocated inside partition's page table.
-			 * Start allocating memory regions in partition's
-			 * page table, starting from the end.
-			 * TODO: Add mechanism to let partition know of these
-			 * memory regions
-			 */
-			if (manifest_vm->sp.mem_regions[j].base_address ==
-			    MANIFEST_INVALID_ADDRESS) {
-				total_alloc += size;
-				/* Don't go beyond half the VM's memory space */
-				if (total_alloc >
-				    (manifest_vm->secondary.mem_size / 2)) {
-					dlog_error(
-						"Not enough space for memory-"
-						"region allocation");
-					ret = false;
-					goto out;
-				}
-
-				region_end = alloc_base;
-				region_begin = pa_subtract(alloc_base, size);
-				alloc_base = region_begin;
-
-				if (!vm_identity_map(
-					    vm_locked, region_begin, region_end,
-					    manifest_vm->sp.mem_regions[j]
-						    .attributes,
-					    ppool, NULL)) {
-					dlog_error(
-						"Unable to map secondary VM "
-						"memory-region.\n");
-					ret = false;
-					goto out;
-				}
-
-				dlog_info(
-					"  Memory region %#x - %#x allocated\n",
-					region_begin, region_end);
-			} else {
-				/*
-				 * Identity map memory region for both case,
-				 * VA(S-EL0) or IPA(S-EL1).
-				 */
-				region_begin =
-					pa_init(manifest_vm->sp.mem_regions[j]
-							.base_address);
-				region_end = pa_add(region_begin, size);
-
-				if (!vm_identity_map(
-					    vm_locked, region_begin, region_end,
-					    manifest_vm->sp.mem_regions[j]
-						    .attributes,
-					    ppool, NULL)) {
-					dlog_error(
-						"Unable to map secondary VM "
-						"memory-region.\n");
-					ret = false;
-					goto out;
-				}
-			}
-
-			/* Deny the primary VM access to this memory */
-			if (!vm_unmap(primary_vm_locked, region_begin,
-				      region_end, ppool)) {
-				dlog_error(
-					"Unable to unmap secondary VM memory-"
-					"region from primary VM.\n");
-				ret = false;
-				goto out;
-			}
-
-			j++;
-		}
-
-		/* Map device-regions */
-		j = 0;
-		while (j < manifest_vm->sp.dev_region_count) {
-			region_begin = pa_init(
-				manifest_vm->sp.dev_regions[j].base_address);
-			size = manifest_vm->sp.dev_regions[j].page_count *
-			       PAGE_SIZE;
-			region_end = pa_add(region_begin, size);
-
-			if (!vm_identity_map(
-				    vm_locked, region_begin, region_end,
-				    manifest_vm->sp.dev_regions[j].attributes,
-				    ppool, NULL)) {
-				dlog_error(
-					"Unable to map secondary VM "
-					"device-region.\n");
-				ret = false;
-				goto out;
-			}
-			/* Deny primary VM access to this region */
-			if (!vm_unmap(primary_vm_locked, region_begin,
-				      region_end, ppool)) {
-				dlog_error(
-					"Unable to unmap secondary VM device-"
-					"region from primary VM.\n");
-				ret = false;
-				goto out;
-			}
-			j++;
-		}
-
-		secondary_entry =
-			ipa_add(secondary_entry, manifest_vm->sp.ep_offset);
-	}
-
-	if (!load_common(stage1_locked, vm_locked, manifest_vm, ppool)) {
-		ret = false;
-		goto out;
-	}
-
-	dlog_info("Loaded with %u vCPUs, entry at %#x.\n",
-		  manifest_vm->secondary.vcpu_count, pa_addr(mem_begin));
-
-	vcpu = vm_get_vcpu(vm, 0);
-
-	vcpu_locked = vcpu_lock(vcpu);
-	if (has_fdt) {
-		vcpu_secondary_reset_and_start(vcpu_locked, secondary_entry,
-					       pa_addr(fdt_addr));
-	} else {
-		/*
-		 * Without an FDT, secondary VMs expect the memory size to be
-		 * passed in register x0, which is what
-		 * vcpu_secondary_reset_and_start does in this case.
-		 */
-		vcpu_secondary_reset_and_start(vcpu_locked, secondary_entry,
-					       mem_size);
-	}
-
-	vcpu_unlock(&vcpu_locked);
-
-	ret = true;
+    /* success */
+    ret = true;
 
 out:
-	vm_unlock(&vm_locked);
-
-	return ret;
+    vm_unlock(&vm_locked);
+    return ret;
 }
 
-/**
- * Try to find a memory range of the given size within the given ranges, and
- * remove it from them. Return true on success, or false if no large enough
- * contiguous range is found.
- */
-static bool carve_out_mem_range(struct mem_range *mem_ranges,
-				size_t mem_ranges_count, uint64_t size_to_find,
-				paddr_t *found_begin, paddr_t *found_end)
-{
-	size_t i;
-
-	/*
-	 * TODO(b/116191358): Consider being cleverer about how we pack VMs
-	 * together, with a non-greedy algorithm.
-	 */
-	for (i = 0; i < mem_ranges_count; ++i) {
-		if (size_to_find <=
-		    pa_difference(mem_ranges[i].begin, mem_ranges[i].end)) {
-			/*
-			 * This range is big enough, take some of it from the
-			 * end and reduce its size accordingly.
-			 */
-			*found_end = mem_ranges[i].end;
-			*found_begin = pa_init(pa_addr(mem_ranges[i].end) -
-					       size_to_find);
-			mem_ranges[i].end = *found_begin;
-			return true;
-		}
-	}
-	return false;
-}
-
-/**
- * Given arrays of memory ranges before and after memory was removed for
- * secondary VMs, add the difference to the reserved ranges of the given update.
- * Return true on success, or false if there would be more than MAX_MEM_RANGES
- * reserved ranges after adding the new ones.
- * `before` and `after` must be arrays of exactly `mem_ranges_count` elements.
- */
-static bool update_reserved_ranges(struct boot_params_update *update,
-				   const struct mem_range *before,
-				   const struct mem_range *after,
-				   size_t mem_ranges_count)
-{
-	size_t i;
-
-	for (i = 0; i < mem_ranges_count; ++i) {
-		if (pa_addr(after[i].begin) > pa_addr(before[i].begin)) {
-			if (update->reserved_ranges_count >= MAX_MEM_RANGES) {
-				dlog_error(
-					"Too many reserved ranges after "
-					"loading secondary VMs.\n");
-				return false;
-			}
-			update->reserved_ranges[update->reserved_ranges_count]
-				.begin = before[i].begin;
-			update->reserved_ranges[update->reserved_ranges_count]
-				.end = after[i].begin;
-			update->reserved_ranges_count++;
-		}
-		if (pa_addr(after[i].end) < pa_addr(before[i].end)) {
-			if (update->reserved_ranges_count >= MAX_MEM_RANGES) {
-				dlog_error(
-					"Too many reserved ranges after "
-					"loading secondary VMs.\n");
-				return false;
-			}
-			update->reserved_ranges[update->reserved_ranges_count]
-				.begin = after[i].end;
-			update->reserved_ranges[update->reserved_ranges_count]
-				.end = before[i].end;
-			update->reserved_ranges_count++;
-		}
-	}
-
-	return true;
-}
-
-static bool init_other_world_vm(struct mpool *ppool)
-{
-	struct vm *other_world_vm;
-	size_t i;
-
-	/*
-	 * Initialise the dummy VM which represents the opposite world:
-	 * -TrustZone (or the SPMC) when running the Hypervisor
-	 * -the Hypervisor when running TZ/SPMC
-	 */
-	other_world_vm = vm_init(HF_OTHER_WORLD_ID, MAX_CPUS, ppool);
-	CHECK(other_world_vm != NULL);
-
-	for (i = 0; i < MAX_CPUS; i++) {
-		struct vcpu *vcpu = vm_get_vcpu(other_world_vm, i);
-		struct cpu *cpu = cpu_find_index(i);
-
-		vcpu->cpu = cpu;
-	}
-
-	return arch_other_world_vm_init(other_world_vm, ppool);
-}
-
-/*
- * Loads alls VMs from the manifest.
- */
-bool load_vms(struct mm_stage1_locked stage1_locked,
-	      const struct manifest *manifest, const struct memiter *cpio,
-	      const struct boot_params *params,
-	      struct boot_params_update *update, struct mpool *ppool)
-{
-	struct vm *primary;
-	struct mem_range mem_ranges_available[MAX_MEM_RANGES];
-	struct vm_locked primary_vm_locked;
-	size_t i;
-	bool success = true;
-
-	/**
-	 * Only try to load the primary VM if it is supposed to be in this
-	 * world.
-	 */
-	if (vm_id_is_current_world(HF_PRIMARY_VM_ID)) {
-		if (!load_primary(stage1_locked,
-				  &manifest->vm[HF_PRIMARY_VM_INDEX], cpio,
-				  params, ppool)) {
-			dlog_error("Unable to load primary VM.\n");
-			return false;
-		}
-	}
-
-	if (!init_other_world_vm(ppool)) {
-		return false;
-	}
-
-	static_assert(
-		sizeof(mem_ranges_available) == sizeof(params->mem_ranges),
-		"mem_range arrays must be the same size for memcpy.");
-	static_assert(sizeof(mem_ranges_available) < 500,
-		      "This will use too much stack, either make "
-		      "MAX_MEM_RANGES smaller or change this.");
-	memcpy_s(mem_ranges_available, sizeof(mem_ranges_available),
-		 params->mem_ranges, sizeof(params->mem_ranges));
-
-	/* Round the last addresses down to the page size. */
-	for (i = 0; i < params->mem_ranges_count; ++i) {
-		mem_ranges_available[i].end = pa_init(align_down(
-			pa_addr(mem_ranges_available[i].end), PAGE_SIZE));
-	}
-
-	primary = vm_find(HF_PRIMARY_VM_ID);
-	primary_vm_locked = vm_lock(primary);
-
-	for (i = 0; i < manifest->vm_count; ++i) {
-		const struct manifest_vm *manifest_vm = &manifest->vm[i];
-		ffa_vm_id_t vm_id = HF_VM_ID_OFFSET + i;
-		uint64_t mem_size;
-		paddr_t secondary_mem_begin;
-		paddr_t secondary_mem_end;
-
-		if (vm_id == HF_PRIMARY_VM_ID) {
-			continue;
-		}
-
-		dlog_info("Loading VM id %#x: %s.\n", vm_id,
-			  manifest_vm->debug_name);
-
-		mem_size = align_up(manifest_vm->secondary.mem_size, PAGE_SIZE);
-
-		if (manifest_vm->is_ffa_partition) {
-			secondary_mem_begin =
-				pa_init(manifest_vm->sp.load_addr);
-			secondary_mem_end =
-				pa_init(manifest_vm->sp.load_addr + mem_size);
-		} else if (!carve_out_mem_range(mem_ranges_available,
-						params->mem_ranges_count,
-						mem_size, &secondary_mem_begin,
-						&secondary_mem_end)) {
-			dlog_error("Not enough memory (%u bytes).\n", mem_size);
-			continue;
-		}
-
-		if (!load_secondary(stage1_locked, primary_vm_locked,
-				    secondary_mem_begin, secondary_mem_end,
-				    manifest_vm, cpio, ppool)) {
-			dlog_error("Unable to load VM.\n");
-			continue;
-		}
-
-		/* Deny the primary VM access to this memory. */
-		if (!vm_unmap(primary_vm_locked, secondary_mem_begin,
-			      secondary_mem_end, ppool)) {
-			dlog_error(
-				"Unable to unmap secondary VM from primary "
-				"VM.\n");
-			success = false;
-			break;
-		}
-	}
-
-	vm_unlock(&primary_vm_locked);
-
-	if (!success) {
-		return false;
-	}
-
-	/*
-	 * Add newly reserved areas to update params by looking at the
-	 * difference between the available ranges from the original params and
-	 * the updated mem_ranges_available. We assume that the number and order
-	 * of available ranges is the same, i.e. we don't remove any ranges
-	 * above only make them smaller.
-	 */
-	return update_reserved_ranges(update, params->mem_ranges,
-				      mem_ranges_available,
-				      params->mem_ranges_count);
-}

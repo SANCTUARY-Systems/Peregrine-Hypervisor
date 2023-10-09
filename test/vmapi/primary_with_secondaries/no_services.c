@@ -9,11 +9,11 @@
 #include <stdalign.h>
 #include <stdint.h>
 
-#include "hf/mm.h"
-#include "hf/static_assert.h"
-#include "hf/std.h"
+#include "pg/mm.h"
+#include "pg/static_assert.h"
+#include "pg/std.h"
 
-#include "vmapi/hf/call.h"
+#include "vmapi/pg/call.h"
 
 #include "primary_with_secondary.h"
 #include "test/hftest.h"
@@ -24,15 +24,15 @@ static alignas(PAGE_SIZE) uint8_t recv_page[PAGE_SIZE];
 static_assert(sizeof(send_page) == PAGE_SIZE, "Send page is not a page.");
 static_assert(sizeof(recv_page) == PAGE_SIZE, "Recv page is not a page.");
 
-static hf_ipaddr_t send_page_addr = (hf_ipaddr_t)send_page;
-static hf_ipaddr_t recv_page_addr = (hf_ipaddr_t)recv_page;
+static pg_ipaddr_t send_page_addr = (pg_ipaddr_t)send_page;
+static pg_ipaddr_t recv_page_addr = (pg_ipaddr_t)recv_page;
 
 /**
  * Confirms the primary VM has the primary ID.
  */
-TEST(hf_vm_get_id, primary_has_primary_id)
+TEST(pg_vm_get_id, primary_has_primary_id)
 {
-	EXPECT_EQ(hf_vm_get_id(), HF_PRIMARY_VM_ID);
+	EXPECT_EQ(pg_vm_get_id(), PG_PRIMARY_VM_ID);
 }
 
 TEAR_DOWN(ffa_partition_info_get)
@@ -67,7 +67,7 @@ TEST(ffa_partition_info_get, three_secondary_vms)
 	EXPECT_EQ(ret.func, FFA_SUCCESS_32);
 	/* Confirm there are 3 secondary VMs as well as this primary VM. */
 	EXPECT_EQ(ret.arg2, 4);
-	EXPECT_EQ(partitions[0].vm_id, hf_vm_get_id());
+	EXPECT_EQ(partitions[0].vm_id, pg_vm_get_id());
 
 	/* The first two secondary VMs should have 1 vCPU, the other one 2. */
 	EXPECT_EQ(partitions[1].vcpu_count, 1);
@@ -97,7 +97,7 @@ TEST(ffa_partition_info_get, invalid_vm_uuid)
  */
 TEST(ffa_run, cannot_run_primary)
 {
-	struct ffa_value res = ffa_run(HF_PRIMARY_VM_ID, 0);
+	struct ffa_value res = ffa_run(PG_PRIMARY_VM_ID, 0);
 	EXPECT_FFA_ERROR(res, FFA_INVALID_PARAMETERS);
 }
 
@@ -138,8 +138,8 @@ TEST(ffa_rxtx_map, fails_with_device_memory)
 TEST(ffa_rxtx_map, fails_with_unaligned_pointer)
 {
 	uint8_t maybe_aligned[2];
-	hf_ipaddr_t unaligned_addr = (hf_ipaddr_t)&maybe_aligned[1];
-	hf_ipaddr_t aligned_addr = (hf_ipaddr_t)send_page;
+	pg_ipaddr_t unaligned_addr = (pg_ipaddr_t)&maybe_aligned[1];
+	pg_ipaddr_t aligned_addr = (pg_ipaddr_t)send_page;
 
 	/* Check that the address is unaligned. */
 	ASSERT_EQ(unaligned_addr & 1, 1);
@@ -187,7 +187,7 @@ TEST(ffa_rxtx_map, succeeds)
 /**
  * The primary receives messages from ffa_run().
  */
-TEST(hf_mailbox_receive, cannot_receive_from_primary_blocking)
+TEST(pg_mailbox_receive, cannot_receive_from_primary_blocking)
 {
 	struct ffa_value res = ffa_msg_wait();
 	EXPECT_NE(res.func, FFA_SUCCESS_32);
@@ -196,7 +196,7 @@ TEST(hf_mailbox_receive, cannot_receive_from_primary_blocking)
 /**
  * The primary receives messages from ffa_run().
  */
-TEST(hf_mailbox_receive, cannot_receive_from_primary_non_blocking)
+TEST(pg_mailbox_receive, cannot_receive_from_primary_non_blocking)
 {
 	struct ffa_value res = ffa_msg_poll();
 	EXPECT_NE(res.func, FFA_SUCCESS_32);

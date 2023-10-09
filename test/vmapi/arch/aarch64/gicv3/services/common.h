@@ -6,6 +6,6 @@
  * https://opensource.org/licenses/BSD-3-Clause.
  */
 
-#include "vmapi/hf/ffa.h"
+#include "vmapi/pg/ffa.h"
 
 struct ffa_value mailbox_receive_retry(void);

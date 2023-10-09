@@ -16,11 +16,11 @@ HYPERVISOR_PATH="$OUT/aem_v8a_fvp_clang"
 
 HFTEST+=(--out_partitions "$OUT/secure_aem_v8a_fvp_vm_clang")
 HFTEST+=(--log "$LOG_DIR_BASE")
-HFTEST+=(--spmc "$SPMC_PATH/hafnium.bin" --driver=fvp)
+HFTEST+=(--spmc "$SPMC_PATH/peregrine.bin" --driver=fvp)
 
 ${HFTEST[@]} --partitions_json test/vmapi/ffa_secure_partition_only/ffa_secure_partition_only_test.json
 
 ${HFTEST[@]} --partitions_json test/vmapi/ffa_secure_partitions/ffa_secure_partitions_test.json
 
-${HFTEST[@]} --hypervisor "$HYPERVISOR_PATH/hafnium.bin" \
+${HFTEST[@]} --hypervisor "$HYPERVISOR_PATH/peregrine.bin" \
              --partitions_json test/vmapi/ffa_secure_partitions/ffa_both_world_partitions_test.json

@@ -1,0 +1,12 @@
+; DO NOT EDIT (unless you know what you are doing)
+;
+; This subdirectory is a git "subrepo", and this file is maintained by the
+; git-subrepo command. See https://github.com/git-commands/git-subrepo#readme
+;
+[subrepo]
+	remote = https://sgit.trust.informatik.tu-darmstadt.de:13196/sanctuary/hypervisor/hafnium-linux-driver
+	branch = master
+	commit = 3162574849ea6bffda96147ee3bc9eede5f852da
+	parent = 8411d7c7d46884ab90353560b5e02038d56812f3
+	method = merge
+	cmdver = 0.4.3

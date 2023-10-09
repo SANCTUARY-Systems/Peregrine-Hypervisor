@@ -6,12 +6,12 @@
  * https://opensource.org/licenses/BSD-3-Clause.
  */
 
-#include "hf/arch/timer.h"
+#include "pg/arch/timer.h"
 
 #include <stdbool.h>
 #include <stdint.h>
 
-#include "hf/arch/types.h"
+#include "pg/arch/types.h"
 
 bool arch_timer_pending(struct arch_regs *regs)
 {

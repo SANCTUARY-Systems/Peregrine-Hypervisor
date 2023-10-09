@@ -8,15 +8,15 @@
 
 #include "gicv3.h"
 
-#include "hf/arch/irq.h"
-#include "hf/arch/vm/interrupts.h"
-#include "hf/arch/vm/interrupts_gicv3.h"
+#include "pg/arch/irq.h"
+#include "pg/arch/vm/interrupts.h"
+#include "pg/arch/vm/interrupts_gicv3.h"
 
-#include "hf/dlog.h"
-#include "hf/mm.h"
-#include "hf/std.h"
+#include "pg/dlog.h"
+#include "pg/mm.h"
+#include "pg/std.h"
 
-#include "vmapi/hf/call.h"
+#include "vmapi/pg/call.h"
 
 #include "../msr.h"
 #include "test/hftest.h"
@@ -25,8 +25,8 @@
 alignas(PAGE_SIZE) uint8_t send_page[PAGE_SIZE];
 alignas(PAGE_SIZE) uint8_t recv_page[PAGE_SIZE];
 
-hf_ipaddr_t send_page_addr = (hf_ipaddr_t)send_page;
-hf_ipaddr_t recv_page_addr = (hf_ipaddr_t)recv_page;
+pg_ipaddr_t send_page_addr = (pg_ipaddr_t)send_page;
+pg_ipaddr_t recv_page_addr = (pg_ipaddr_t)recv_page;
 
 void *send_buffer = send_page;
 void *recv_buffer = recv_page;

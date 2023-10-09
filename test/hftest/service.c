@@ -9,17 +9,16 @@
 #include <stdalign.h>
 #include <stdint.h>
 
-#include "hf/arch/vm/interrupts.h"
+#include "pg/arch/vm/interrupts.h"
 
-#include "hf/fdt_handler.h"
-#include "hf/ffa.h"
-#include "hf/memiter.h"
-#include "hf/mm.h"
-#include "hf/std.h"
+#include "pg/fdt_handler.h"
+#include "pg/ffa.h"
+#include "pg/memiter.h"
+#include "pg/mm.h"
+#include "pg/std.h"
 
-#include "vmapi/hf/call.h"
+#include "vmapi/pg/call.h"
 
-#include "msr.h"
 #include "test/hftest.h"
 
 alignas(4096) uint8_t kstack[4096];
@@ -29,11 +28,11 @@ HFTEST_ENABLE();
 extern struct hftest_test hftest_begin[];
 extern struct hftest_test hftest_end[];
 
-static alignas(HF_MAILBOX_SIZE) uint8_t send[HF_MAILBOX_SIZE];
-static alignas(HF_MAILBOX_SIZE) uint8_t recv[HF_MAILBOX_SIZE];
+static alignas(PG_MAILBOX_SIZE) uint8_t send[PG_MAILBOX_SIZE];
+static alignas(PG_MAILBOX_SIZE) uint8_t recv[PG_MAILBOX_SIZE];
 
-static hf_ipaddr_t send_addr = (hf_ipaddr_t)send;
-static hf_ipaddr_t recv_addr = (hf_ipaddr_t)recv;
+static pg_ipaddr_t send_addr = (pg_ipaddr_t)send;
+static pg_ipaddr_t recv_addr = (pg_ipaddr_t)recv;
 
 static struct hftest_context global_context;
 
@@ -73,25 +72,13 @@ noreturn void abort(void)
 	}
 }
 
-noreturn void kmain(const void *fdt_ptr)
+noreturn void hftest_service_main(const void *fdt_ptr)
 {
 	struct memiter args;
 	hftest_test_fn service;
 	struct hftest_context *ctx;
 	struct ffa_value ret;
 	struct fdt fdt;
-
-	/*
-	 * Initialize the stage-1 MMU and identity-map the entire address space.
-	 */
-	if (!hftest_mm_init()) {
-		HFTEST_LOG_FAILURE();
-		HFTEST_LOG(HFTEST_LOG_INDENT "Memory initialization failed");
-		abort();
-	}
-
-	/* Setup basic exception handling. */
-	exception_setup(NULL, NULL);
 
 	/* Prepare the context. */
 
@@ -145,4 +132,21 @@ noreturn void kmain(const void *fdt_ptr)
 	for (;;) {
 		/* Hang if the service returns. */
 	}
+}
+
+noreturn void kmain(const void *fdt_ptr)
+{
+	/*
+	 * Initialize the stage-1 MMU and identity-map the entire address space.
+	 */
+	if (!hftest_mm_init()) {
+		HFTEST_LOG_FAILURE();
+		HFTEST_LOG(HFTEST_LOG_INDENT "Memory initialization failed");
+		abort();
+	}
+
+	/* Setup basic exception handling. */
+	exception_setup(NULL, NULL);
+
+	hftest_service_main(fdt_ptr);
 }

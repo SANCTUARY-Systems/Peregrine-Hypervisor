@@ -8,40 +8,40 @@
 
 #pragma once
 
-#include "hf/arch/types.h"
+#include "pg/arch/types.h"
 
-#include "hf/cpu.h"
+#include "pg/cpu.h"
 
-#include "vmapi/hf/ffa.h"
+#include "vmapi/pg/ffa.h"
 
-#define HF_FEATURE_NONE UINT64_C(0)
+#define PG_FEATURE_NONE UINT64_C(0)
 
 /*  Reliability, Availability, and Serviceability (RAS) Extension Features */
-#define HF_FEATURE_RAS UINT64_C(1)
+#define PG_FEATURE_RAS UINT64_C(1)
 
 /* Limited Ordering Regions */
-#define HF_FEATURE_LOR (UINT64_C(1) << 1)
+#define PG_FEATURE_LOR (UINT64_C(1) << 1)
 
 /* Performance Monitor */
-#define HF_FEATURE_PERFMON (UINT64_C(1) << 2)
+#define PG_FEATURE_PERFMON (UINT64_C(1) << 2)
 
 /* Debug Registers */
-#define HF_FEATURE_DEBUG (UINT64_C(1) << 3)
+#define PG_FEATURE_DEBUG (UINT64_C(1) << 3)
 
 /* Statistical Profiling Extension (SPE) */
-#define HF_FEATURE_SPE (UINT64_C(1) << 4)
+#define PG_FEATURE_SPE (UINT64_C(1) << 4)
 
 /* Self-hosted Trace */
-#define HF_FEATURE_TRACE (UINT64_C(1) << 5)
+#define PG_FEATURE_TRACE (UINT64_C(1) << 5)
 
 /* Pointer Authentication (PAuth) */
-#define HF_FEATURE_PAUTH (UINT64_C(1) << 6)
+#define PG_FEATURE_PAUTH (UINT64_C(1) << 6)
 
 /*
  * NOTE: This should be based on the last (highest value) defined feature.
  * Adjust if adding more features.
  */
-#define HF_FEATURE_ALL ((HF_FEATURE_PAUTH << 1) - 1)
+#define PG_FEATURE_ALL ((PG_FEATURE_PAUTH << 1) - 1)
 
 bool feature_id_is_register_access(uintreg_t esr_el2);
 

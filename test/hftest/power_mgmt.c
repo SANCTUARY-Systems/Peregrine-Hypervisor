@@ -6,11 +6,11 @@
  * https://opensource.org/licenses/BSD-3-Clause.
  */
 
-#include "hf/arch/vm/power_mgmt.h"
+#include "pg/arch/vm/power_mgmt.h"
 
-#include "hf/arch/mm.h"
+#include "pg/arch/mm.h"
 
-#include "hf/spinlock.h"
+#include "pg/spinlock.h"
 
 #include "test/hftest.h"
 
@@ -22,6 +22,11 @@ struct cpu_start_state {
 
 static noreturn void cpu_entry(uintptr_t arg)
 {
+	/*
+	 * The function prototype must match the entry function so we permit the
+	 * int to pointer conversion.
+	 */
+	// NOLINTNEXTLINE(performance-no-int-to-ptr)
 	struct cpu_start_state *s = (struct cpu_start_state *)arg;
 	struct cpu_start_state s_copy;
 

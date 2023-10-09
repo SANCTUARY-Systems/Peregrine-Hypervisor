@@ -8,22 +8,27 @@
 
 #include <stdnoreturn.h>
 
-#include "hf/arch/barriers.h"
-#include "hf/arch/init.h"
-#include "hf/arch/mmu.h"
-#include "hf/arch/plat/smc.h"
+#include "pg/arch/barriers.h"
+#include "pg/arch/init.h"
+#include "pg/arch/mmu.h"
+#include "pg/arch/plat/smc.h"
+#include "pg/arch/tee/mediator.h"
+#include "pg/arch/virtioac.h"
+#include "pg/arch/emulator.h"
+#include "pg/arch/virt_devs.h"
 
-#include "hf/api.h"
-#include "hf/check.h"
-#include "hf/cpu.h"
-#include "hf/dlog.h"
-#include "hf/ffa.h"
-#include "hf/ffa_internal.h"
-#include "hf/panic.h"
-#include "hf/plat/interrupts.h"
-#include "hf/vm.h"
+#include "pg/api.h"
+#include "pg/check.h"
+#include "pg/cpu.h"
+#include "pg/dlog.h"
+#include "pg/ffa.h"
+#include "pg/ffa_internal.h"
+#include "pg/panic.h"
+#include "pg/plat/interrupts.h"
+#include "pg/interrupt_desc.h"
+#include "pg/vm.h"
 
-#include "vmapi/hf/call.h"
+#include "vmapi/pg/call.h"
 
 #include "debug_el1.h"
 #include "feature_id.h"
@@ -63,6 +68,188 @@ static struct vcpu *current(void)
 	return (struct vcpu *)read_msr(tpidr_el2);
 }
 
+/* New: moved interrupt delegation into handler */
+
+/**
+ * returns the vCPU by the interrupt owning VM targeted
+ * by the interrupt.
+ */
+static struct vcpu *find_target_vcpu(struct vcpu *current,
+					      uint32_t interrupt_id)
+{
+	bool target_vm_found = false;
+	struct vm *vm;
+	struct vcpu *target_vcpu = NULL;
+	struct interrupt_descriptor int_desc;
+
+	/**
+	 * Find which VM owns this interrupt. We then find the corresponding
+	 * vCPU context for this CPU.
+	 */
+	for (uint16_t index = 0; index < vm_get_count(); ++index) {
+		vm = vm_find_index(index);
+
+		for (uint32_t j = 0; j < PG_NUM_INTIDS; j++) {
+			int_desc = vm->interrupt_desc[j];
+
+			/** Interrupt descriptors are populated contiguously. */
+			if (!int_desc.valid) {
+				break;
+			}
+			if (int_desc.interrupt_id == interrupt_id) {
+				target_vm_found = true;
+				break;
+			}
+		}
+		if (target_vm_found) {
+			break;
+		}
+	}
+
+	CHECK(target_vm_found);
+
+	/* codechecker_false_positive [cppcheck-uninitvar] the check for target_vm_found prevents vm from being uninitialized */
+	target_vcpu = api_get_vm_vcpu(vm_find(vm->id), current);
+
+	CHECK(target_vcpu != NULL);
+
+	return target_vcpu;
+}
+
+/**
+ * NOTE: this is from WIP Hafnium upstream
+ * 
+ * TODO: As of now, we did not implement support for checking legal state
+ * transitions defined under the partition runtime models defined in the
+ * FF-A v1.1-Beta spec.
+ * Moreover, support for scheduling models has not been implemented. However,
+ * the current implementation loosely maps to the following valid actions for
+ * a S-EL1 Partition:
+
+ Runtime Model		NS-Int			Self S-Int	Other S-Int
+ --------------------------------------------------------------------------
+ Message Processing	Signalable with ME	Signalable	Signalable
+ Interrupt Handling	Queued			Queued		Queued
+ --------------------------------------------------------------------------
+ */
+
+/**
+ * Delegate the interrupt handling to the target vcpu.
+ */
+static void delegate_interrupt(struct vcpu *current, struct vcpu **next)
+{
+	int64_t ret;
+	uint32_t id;
+	struct vcpu_locked target_vcpu_locked;
+	struct vcpu_locked current_vcpu_locked;
+	struct vcpu *target_vcpu;
+
+	/* Find pending interrupt id. This also activates the interrupt. */
+	id = plat_interrupts_get_pending_interrupt_id();
+
+	target_vcpu = find_target_vcpu(current, id);
+
+	/* Update the state of current vCPU. */
+	current_vcpu_locked = vcpu_lock(current);
+	current->state = VCPU_STATE_PREEMPTED;
+	vcpu_unlock(&current_vcpu_locked);
+
+	/**
+	 *  TODO: set priority mask back after interrupt 
+	 * was handled with plat_interrupts_set_priority_mask(0xff);
+	 * 
+	 *	TODO: Temporarily mask all interrupts to disallow high priority
+	 * interrupts from pre-empting current interrupt processing.
+	 */
+	plat_interrupts_set_priority_mask(0x0);
+
+	target_vcpu_locked = vcpu_lock(target_vcpu);
+
+	/* Inject this interrupt as a vIRQ to the target VM context. */
+	ret = api_interrupt_inject_locked(target_vcpu_locked, id, current,
+					  NULL);
+
+	/* Ideally should not happen unless a programming error. */
+	if (ret == 1) {
+		/*
+		 * We know execution was preempted while running in secure
+		 * world. SPM will resume execution in target vCPU.
+		 */
+		panic("PVM should not schedule target vCPU\n");
+	}
+
+	/**
+	 * Special scenario where target vCPU is the current vCPU in normal
+	 * world.
+	 */
+	if (current == target_vcpu) {
+		dlog_verbose("Resume current vCPU\n");
+		*next = NULL;
+
+		/* We have already locked vCPU. */
+		current->state = VCPU_STATE_RUNNING;
+	} else {
+		/* Switch to target vCPU responsible for this interrupt. */
+		*next = target_vcpu;
+
+		struct ffa_value args = {
+			.func = (uint32_t)FFA_INTERRUPT_32,
+		};
+
+		if (target_vcpu->state == VCPU_STATE_READY) {
+			args.arg1 = id;
+		} else if (target_vcpu->state == VCPU_STATE_BLOCKED_MAILBOX) {
+			/* Implementation defined mechanism. */
+			args.arg1 = DEFERRED_INT_ID;
+		} else if (target_vcpu->state == VCPU_STATE_PREEMPTED ||
+			   target_vcpu->state == VCPU_STATE_BLOCKED_INTERRUPT) {
+			/*
+			 * We do not resume a target vCPU that has been already
+			 * pre-empted by an interrupt or waiting for an
+			 * interrupt(WFI). We only pend the vIRQ for target SP
+			 * and continue to resume current vCPU.
+			 */
+			*next = NULL;
+			goto out;
+			/*
+			 * TODO: Can we do better with the vCPU that is in
+			 * STATE_BLOCKED_INTERRUPT ? Perhaps immediately resume
+			 * it?
+			 */
+		} else {
+			/*
+			 * vCPU of Target VM cannot be in RUNNING/OFF/ABORTED
+			 * state if it has to handle secure interrupt.
+			 */
+			panic("Secure interrupt cannot be signaled to target "
+			      "VM\n");
+		}
+
+		CHECK((*next)->regs_available);
+		arch_regs_set_retval(&((*next)->regs), args);
+		(*next)->state = VCPU_STATE_RUNNING;
+
+		/* Mark the registers as unavailable now. */
+		(*next)->regs_available = false;
+	}
+out:
+	//target_vcpu->processing_secure_interrupt = true;
+
+	// if (target_vcpu == current) {
+	// 	/**
+	// 	 * In scenario where target vCPU is the current vCPU in
+	// 	 * normal world, there is no vCPU to resume when target
+	// 	 * vCPU exits after interrupt completion.
+	// 	 */
+	// 	target_vcpu->preempted_vcpu = NULL;
+	// } else {
+	// 	target_vcpu->preempted_vcpu = current;
+	// }
+
+	//target_vcpu->current_sec_interrupt_id = id;
+	vcpu_unlock(&target_vcpu_locked);
+}
+
 /**
  * Saves the state of per-vCPU peripherals, such as the virtual timer, and
  * informs the arch-independent sections that registers have been saved.
@@ -87,7 +274,7 @@ void complete_saving_state(struct vcpu *vcpu)
 	 * This is used to emulate the virtual timer for the primary in case it
 	 * should fire while the secondary is running.
 	 */
-	if (vcpu->vm->id == HF_PRIMARY_VM_ID) {
+	if (vcpu->vm->id == PG_PRIMARY_VM_ID) {
 		/*
 		 * Clear timer control register before copying compare value, to
 		 * avoid a spurious timer interrupt. This could be a problem if
@@ -133,7 +320,7 @@ void begin_restoring_state(struct vcpu *vcpu)
 	 * timer which was being used to emulate the EL0 virtual timer, as the
 	 * virtual timer is now running for the primary again.
 	 */
-	if (vcpu->vm->id == HF_PRIMARY_VM_ID) {
+	if (vcpu->vm->id == PG_PRIMARY_VM_ID) {
 		write_msr(cnthp_ctl_el2, 0);
 		write_msr(cnthp_cval_el2, 0);
 	}
@@ -178,8 +365,8 @@ static void invalidate_vm_tlb(void)
  */
 void maybe_invalidate_tlb(struct vcpu *vcpu)
 {
-	size_t current_cpu_index = cpu_index(vcpu->cpu);
-	ffa_vcpu_index_t new_vcpu_index = vcpu_index(vcpu);
+	size_t   current_cpu_index = cpu_index(vcpu->cpu);
+	uint16_t new_vcpu_index    = vcpu_index(vcpu);
 
 	if (vcpu->vm->arch.last_vcpu_on_cpu[current_cpu_index] !=
 	    new_vcpu_index) {
@@ -309,100 +496,6 @@ static void set_virtual_fiq_current(bool enable)
 	current()->regs.hcr_el2 = hcr_el2;
 }
 
-#if SECURE_WORLD == 1
-
-static bool sp_boot_next(struct vcpu *current, struct vcpu **next,
-			 struct ffa_value *ffa_ret)
-{
-	struct vm_locked current_vm_locked;
-	struct vm *vm_next = NULL;
-	bool ret = false;
-
-	/*
-	 * If VM hasn't been initialized, initialize it and traverse
-	 * booting list following "next_boot" field in the VM structure.
-	 * Once all the SPs have been booted (when "next_boot" is NULL),
-	 * return execution to the NWd.
-	 */
-	current_vm_locked = vm_lock(current->vm);
-	if (current_vm_locked.vm->initialized == false) {
-		current_vm_locked.vm->initialized = true;
-		dlog_verbose("Initialized VM: %#x, boot_order: %u\n",
-			     current_vm_locked.vm->id,
-			     current_vm_locked.vm->boot_order);
-
-		if (current_vm_locked.vm->next_boot != NULL) {
-			current->state = VCPU_STATE_BLOCKED_MAILBOX;
-			vm_next = current_vm_locked.vm->next_boot;
-			CHECK(vm_next->initialized == false);
-			*next = vm_get_vcpu(vm_next, vcpu_index(current));
-			arch_regs_reset(*next);
-			(*next)->cpu = current->cpu;
-			(*next)->state = VCPU_STATE_RUNNING;
-			(*next)->regs_available = false;
-
-			*ffa_ret = (struct ffa_value){.func = FFA_INTERRUPT_32};
-			ret = true;
-			goto out;
-		}
-
-		dlog_verbose("Finished initializing all VMs.\n");
-	}
-
-out:
-	vm_unlock(&current_vm_locked);
-	return ret;
-}
-
-/**
- * Handle special direct messages from SPMD to SPMC. For now related to power
- * management only.
- */
-static bool spmd_handler(struct ffa_value *args, struct vcpu *current)
-{
-	ffa_vm_id_t sender = ffa_sender(*args);
-	ffa_vm_id_t receiver = ffa_receiver(*args);
-	ffa_vm_id_t current_vm_id = current->vm->id;
-
-	/*
-	 * Check if direct message request is originating from the SPMD and
-	 * directed to the SPMC.
-	 */
-	if (!(sender == HF_SPMD_VM_ID && receiver == HF_SPMC_VM_ID &&
-	      current_vm_id == HF_OTHER_WORLD_ID)) {
-		return false;
-	}
-
-	switch (args->arg3) {
-	case PSCI_CPU_OFF: {
-		struct vm *vm = vm_get_first_boot();
-		struct vcpu *vcpu = vm_get_vcpu(vm, vcpu_index(current));
-
-		/*
-		 * TODO: the PM event reached the SPMC. In a later iteration,
-		 * the PM event can be passed to the SP by resuming it.
-		 */
-		*args = (struct ffa_value){
-			.func = FFA_MSG_SEND_DIRECT_RESP_32,
-			.arg1 = ((uint64_t)HF_SPMC_VM_ID << 16) | HF_SPMD_VM_ID,
-			.arg2 = 0U};
-
-		dlog_verbose("%s cpu off notification cpuid %#x\n", __func__,
-			     vcpu->cpu->id);
-		cpu_off(vcpu->cpu);
-		break;
-	}
-	default:
-		dlog_verbose("%s message not handled %#x\n", __func__,
-			     args->arg3);
-		return false;
-	}
-
-	return true;
-}
-
-#endif
-
 /**
  * Checks whether to block an SMC being forwarded from a VM.
  */
@@ -416,8 +509,10 @@ static bool smc_is_blocked(const struct vm *vm, uint32_t func)
 		}
 	}
 
-	dlog_notice("SMC %#010x attempted from VM %#x, blocked=%u\n", func,
-		    vm->id, block_by_default);
+	if(block_by_default){
+		dlog_warning("SMC %#010x attempted from VM %#x got blocked\n", func,
+				vm->id);
+	}
 
 	/* Access is still allowed in permissive mode. */
 	return block_by_default;
@@ -429,7 +524,7 @@ static bool smc_is_blocked(const struct vm *vm, uint32_t func)
  */
 static void smc_forwarder(const struct vm *vm, struct ffa_value *args)
 {
-	struct ffa_value ret;
+	struct ffa_value ret = {0};
 	uint32_t client_id = vm->id;
 	uintreg_t arg7 = args->arg7;
 
@@ -444,8 +539,15 @@ static void smc_forwarder(const struct vm *vm, struct ffa_value *args)
 	 * upper bits.
 	 */
 	args->arg7 = client_id | (arg7 & ~CLIENT_ID_MASK);
-	ret = smc_forward(args->func, args->arg1, args->arg2, args->arg3,
-			  args->arg4, args->arg5, args->arg6, args->arg7);
+
+
+	memcpy_s(&ret, sizeof(struct ffa_value), args, sizeof(struct ffa_value));
+
+	if (!tee_mediator_ops.handle_smccc(args, &ret)) {
+		ret = smc_forward(args->func, args->arg1, args->arg2,
+				     args->arg3, args->arg4, args->arg5,
+				     args->arg6, args->arg7);
+	}
 
 	/*
 	 * Preserve the value passed by the caller, rather than the generated
@@ -458,135 +560,6 @@ static void smc_forwarder(const struct vm *vm, struct ffa_value *args)
 	plat_smc_post_forward(*args, &ret);
 
 	*args = ret;
-}
-
-/**
- * In the normal world, ffa_handler is always called from the virtual FF-A
- * instance (from a VM in EL1). In the secure world, ffa_handler may be called
- * from the virtual (a secure partition in S-EL1) or physical FF-A instance
- * (from the normal world via EL3). The function returns true when the call is
- * handled. The *next pointer is updated to the next vCPU to run, which might be
- * the 'other world' vCPU if the call originated from the virtual FF-A instance
- * and has to be forwarded down to EL3, or left as is to resume the current
- * vCPU.
- */
-static bool ffa_handler(struct ffa_value *args, struct vcpu *current,
-			struct vcpu **next)
-{
-	uint32_t func = args->func;
-
-	/*
-	 * NOTE: When adding new methods to this handler update
-	 * api_ffa_features accordingly.
-	 */
-	switch (func) {
-	case FFA_VERSION_32:
-		*args = api_ffa_version(args->arg1);
-		return true;
-	case FFA_PARTITION_INFO_GET_32: {
-		struct ffa_uuid uuid;
-
-		ffa_uuid_init(args->arg1, args->arg2, args->arg3, args->arg4,
-			      &uuid);
-		*args = api_ffa_partition_info_get(current, &uuid);
-		return true;
-	}
-	case FFA_ID_GET_32:
-		*args = api_ffa_id_get(current);
-		return true;
-	case FFA_SPM_ID_GET_32:
-		*args = api_ffa_spm_id_get();
-		return true;
-	case FFA_FEATURES_32:
-		*args = api_ffa_features(args->arg1);
-		return true;
-	case FFA_RX_RELEASE_32:
-		*args = api_ffa_rx_release(current, next);
-		return true;
-	case FFA_RXTX_MAP_64:
-		*args = api_ffa_rxtx_map(ipa_init(args->arg1),
-					 ipa_init(args->arg2), args->arg3,
-					 current, next);
-		return true;
-	case FFA_YIELD_32:
-		*args = api_yield(current, next);
-		return true;
-	case FFA_MSG_SEND_32:
-		*args = api_ffa_msg_send(ffa_sender(*args), ffa_receiver(*args),
-					 ffa_msg_send_size(*args),
-					 ffa_msg_send_attributes(*args),
-					 current, next);
-		return true;
-	case FFA_MSG_WAIT_32:
-#if SECURE_WORLD == 1
-		if (sp_boot_next(current, next, args)) {
-			return true;
-		}
-#endif
-		*args = api_ffa_msg_recv(true, current, next);
-		return true;
-	case FFA_MSG_POLL_32:
-		*args = api_ffa_msg_recv(false, current, next);
-		return true;
-	case FFA_RUN_32:
-		*args = api_ffa_run(ffa_vm_id(*args), ffa_vcpu_index(*args),
-				    current, next);
-		return true;
-	case FFA_MEM_DONATE_32:
-	case FFA_MEM_LEND_32:
-	case FFA_MEM_SHARE_32:
-		*args = api_ffa_mem_send(func, args->arg1, args->arg2,
-					 ipa_init(args->arg3), args->arg4,
-					 current);
-		return true;
-	case FFA_MEM_RETRIEVE_REQ_32:
-		*args = api_ffa_mem_retrieve_req(args->arg1, args->arg2,
-						 ipa_init(args->arg3),
-						 args->arg4, current);
-		return true;
-	case FFA_MEM_RELINQUISH_32:
-		*args = api_ffa_mem_relinquish(current);
-		return true;
-	case FFA_MEM_RECLAIM_32:
-		*args = api_ffa_mem_reclaim(
-			ffa_assemble_handle(args->arg1, args->arg2), args->arg3,
-			current);
-		return true;
-	case FFA_MEM_FRAG_RX_32:
-		*args = api_ffa_mem_frag_rx(ffa_frag_handle(*args), args->arg3,
-					    (args->arg4 >> 16) & 0xffff,
-					    current);
-		return true;
-	case FFA_MEM_FRAG_TX_32:
-		*args = api_ffa_mem_frag_tx(ffa_frag_handle(*args), args->arg3,
-					    (args->arg4 >> 16) & 0xffff,
-					    current);
-		return true;
-	case FFA_MSG_SEND_DIRECT_REQ_64:
-	case FFA_MSG_SEND_DIRECT_REQ_32: {
-#if SECURE_WORLD == 1
-		if (spmd_handler(args, current)) {
-			return true;
-		}
-#endif
-		*args = api_ffa_msg_send_direct_req(ffa_sender(*args),
-						    ffa_receiver(*args), *args,
-						    current, next);
-		return true;
-	}
-	case FFA_MSG_SEND_DIRECT_RESP_64:
-	case FFA_MSG_SEND_DIRECT_RESP_32:
-		*args = api_ffa_msg_send_direct_resp(ffa_sender(*args),
-						     ffa_receiver(*args), *args,
-						     current, next);
-		return true;
-	case FFA_SECONDARY_EP_REGISTER_64:
-		*args = api_ffa_secondary_ep_register(ipa_init(args->arg1),
-						      current);
-		return true;
-	}
-
-	return false;
 }
 
 /**
@@ -608,7 +581,7 @@ static void vcpu_update_virtual_interrupts(struct vcpu *next)
 		set_virtual_fiq_current(
 			vcpu_interrupt_fiq_count_get(vcpu_locked) > 0);
 		vcpu_unlock(&vcpu_locked);
-	} else if (vm_id_is_current_world(next->vm->id)) {
+	} else {
 		/*
 		 * About to switch vCPUs, set the bit for the vCPU to which we
 		 * are switching in the saved copy of the register.
@@ -633,16 +606,8 @@ static bool hvc_smc_handler(struct ffa_value args, struct vcpu *vcpu,
 			    struct vcpu **next)
 {
 	/* Do not expect PSCI calls emitted from within the secure world. */
-#if SECURE_WORLD == 0
 	if (psci_handler(vcpu, args.func, args.arg1, args.arg2, args.arg3,
 			 &vcpu->regs.r[0], next)) {
-		return true;
-	}
-#endif
-
-	if (ffa_handler(&args, vcpu, next)) {
-		arch_regs_set_retval(&vcpu->regs, args);
-		vcpu_update_virtual_interrupts(*next);
 		return true;
 	}
 
@@ -657,49 +622,15 @@ static struct vcpu *smc_handler(struct vcpu *vcpu)
 	struct ffa_value args = arch_regs_get_args(&vcpu->regs);
 	struct vcpu *next = NULL;
 
-	if (hvc_smc_handler(args, vcpu, &next)) {
-		return next;
-	}
 
-	switch (args.func & ~SMCCC_CONVENTION_MASK) {
-	case HF_DEBUG_LOG:
-		vcpu->regs.r[0] = api_debug_log(args.arg1, vcpu);
-		return NULL;
+	if (hvc_smc_handler(args, vcpu, &next)) {
+			return next;
 	}
 
 	smc_forwarder(vcpu->vm, &args);
 	arch_regs_set_retval(&vcpu->regs, args);
 	return NULL;
 }
-
-#if SECURE_WORLD == 1
-
-/**
- * Called from other_world_loop return from SMC.
- * Processes SMC calls originating from the NWd.
- */
-struct vcpu *smc_handler_from_nwd(struct vcpu *vcpu)
-{
-	struct ffa_value args = arch_regs_get_args(&vcpu->regs);
-	struct vcpu *next = NULL;
-
-	if (hvc_smc_handler(args, vcpu, &next)) {
-		return next;
-	}
-
-	/*
-	 * If the SMC emitted by the normal world is not handled in the secure
-	 * world then return an error stating such ABI is not supported. Only
-	 * FF-A calls are supported. We cannot return SMCCC_ERROR_UNKNOWN
-	 * directly because the SPMD smc handler would not recognize it as a
-	 * standard FF-A call returning from the SPMC.
-	 */
-	arch_regs_set_retval(&vcpu->regs, ffa_error(FFA_NOT_SUPPORTED));
-
-	return NULL;
-}
-
-#endif
 
 /*
  * Exception vector offsets.
@@ -864,30 +795,18 @@ static struct vcpu *hvc_handler(struct vcpu *vcpu)
 	}
 
 	switch (args.func) {
-	case HF_MAILBOX_WRITABLE_GET:
-		vcpu->regs.r[0] = api_mailbox_writable_get(vcpu);
-		break;
-
-	case HF_MAILBOX_WAITER_GET:
-		vcpu->regs.r[0] = api_mailbox_waiter_get(args.arg1, vcpu);
-		break;
-
-	case HF_INTERRUPT_ENABLE:
+	case PG_INTERRUPT_ENABLE:
 		vcpu->regs.r[0] = api_interrupt_enable(args.arg1, args.arg2,
 						       args.arg3, vcpu);
 		break;
 
-	case HF_INTERRUPT_GET:
+	case PG_INTERRUPT_GET:
 		vcpu->regs.r[0] = api_interrupt_get(vcpu);
 		break;
 
-	case HF_INTERRUPT_INJECT:
+	case PG_INTERRUPT_INJECT:
 		vcpu->regs.r[0] = api_interrupt_inject(args.arg1, args.arg2,
 						       args.arg3, vcpu, &next);
-		break;
-
-	case HF_DEBUG_LOG:
-		vcpu->regs.r[0] = api_debug_log(args.arg1, vcpu);
 		break;
 
 	default:
@@ -901,61 +820,33 @@ static struct vcpu *hvc_handler(struct vcpu *vcpu)
 
 struct vcpu *irq_lower(void)
 {
+	/* New: we handle interrupts in the hypervisor instead of primary VM */
+	struct vcpu *vcpu = current();
+	struct vcpu *target_vcpu = NULL;
+	delegate_interrupt(vcpu, &target_vcpu);
+
 	/*
-	 * Switch back to primary VM, interrupts will be handled there.
-	 *
-	 * If the VM has aborted, this vCPU will be aborted when the scheduler
-	 * tries to run it again. This means the interrupt will not be delayed
-	 * by the aborted VM.
-	 *
-	 * TODO: Only switch when the interrupt isn't for the current VM.
+	 * Since we are in interrupt context, set the bit for the
+	 * next vCPU directly in the register.
 	 */
-	return api_preempt(current());
+	vcpu_update_virtual_interrupts(target_vcpu);
+
+	return target_vcpu;
+	
+	// /* Old:
+	//  * Switch back to primary VM, interrupts will be handled there.
+	//  *
+	//  * If the VM has aborted, this vCPU will be aborted when the scheduler
+	//  * tries to run it again. This means the interrupt will not be delayed
+	//  * by the aborted VM.
+	//  *
+	//  * TODO: Only switch when the interrupt isn't for the current VM.
+	//  */
+	// return api_preempt(current());
 }
 
 struct vcpu *fiq_lower(void)
 {
-#if SECURE_WORLD == 1
-	struct vcpu_locked current_locked;
-	struct vcpu *current_vcpu = current();
-	int ret;
-
-	if (current_vcpu->vm->supports_managed_exit) {
-		/* Mask all interrupts */
-		plat_interrupts_set_priority_mask(0x0);
-
-		current_locked = vcpu_lock(current_vcpu);
-		ret = api_interrupt_inject_locked(current_locked,
-						  HF_MANAGED_EXIT_INTID,
-						  current_vcpu, NULL);
-		if (ret != 0) {
-			panic("Failed to inject managed exit interrupt\n");
-		}
-
-		/* Entering managed exit sequence. */
-		current_vcpu->processing_managed_exit = true;
-
-		vcpu_unlock(&current_locked);
-
-		/*
-		 * Since we are in interrupt context, set the bit for the
-		 * current vCPU directly in the register.
-		 */
-		vcpu_update_virtual_interrupts(NULL);
-
-		/* Resume current vCPU. */
-		return NULL;
-	}
-
-	/*
-	 * SP does not support managed exit. It is pre-empted and execution
-	 * handed back to the normal world through the FFA_INTERRUPT ABI.
-	 * The SP can be resumed later by ffa_run. The call to irq_lower
-	 * and api_preempt is equivalent to calling api_switch_to_other_world
-	 * for current vCPU passing FFA_INTERRUPT_32.
-	 */
-#endif
-
 	return irq_lower();
 }
 
@@ -994,19 +885,6 @@ static struct vcpu_fault_info fault_info_init(uintreg_t esr,
 	/* Extract Faulting IPA. */
 	hpfar_el2_fipa = (hpfar_el2_val & HPFAR_EL2_FIPA) << 8;
 
-#if SECURE_WORLD == 1
-
-	/**
-	 * Determine if faulting IPA targets NS space.
-	 * At NS-EL2 hpfar_el2 bit 63 is RES0. At S-EL2, this bit determines if
-	 * the faulting Stage-1 address output is a secure or non-secure IPA.
-	 */
-	if ((hpfar_el2_val & HPFAR_EL2_NS) != 0) {
-		r.mode |= MM_MODE_NS;
-	}
-
-#endif
-
 	/*
 	 * Check the FnV bit, which is only valid if dfsc/ifsc is 010000. It
 	 * indicates that we cannot rely on far_el2.
@@ -1027,7 +905,7 @@ struct vcpu *sync_lower_exception(uintreg_t esr, uintreg_t far)
 {
 	struct vcpu *vcpu = current();
 	struct vcpu_fault_info info;
-	struct vcpu *new_vcpu;
+	struct vcpu *new_vcpu = vcpu;
 	uintreg_t ec = GET_ESR_EC(esr);
 
 	switch (ec) {
@@ -1050,6 +928,28 @@ struct vcpu *sync_lower_exception(uintreg_t esr, uintreg_t far)
 	case EC_DATA_ABORT_LOWER_EL:
 		info = fault_info_init(
 			esr, vcpu, (esr & (1U << 6)) ? MM_MODE_W : MM_MODE_R);
+
+		if((info.ipaddr.ipa >= VIRTIO_START) && (info.ipaddr.ipa <= VIRTIO_END)) {
+		    if(virtioac_handle(esr, far, GET_NEXT_PC_INC(esr), vcpu, &info)) {
+		        return NULL;
+		    }
+		}
+		else
+		{
+            /* try to resolve this as a virtual device access */
+            if (access_virt_dev(esr, far, GET_NEXT_PC_INC(esr), vcpu, &info)) {
+                return NULL;
+            }
+
+            /* try to resolve this as a GIC access */
+            if (access_gicv3(esr, far, GET_NEXT_PC_INC(esr), vcpu, &info)) {
+                return NULL;
+            }
+
+			dlog_warning("Data Abort | PC:%#x IPA:%#x\n",
+				vcpu->regs.pc,
+				info.ipaddr.ipa);
+		}
 		if (vcpu_handle_page_fault(vcpu, &info)) {
 			return NULL;
 		}
@@ -1115,7 +1015,7 @@ struct vcpu *sync_lower_exception(uintreg_t esr, uintreg_t far)
 void handle_system_register_access(uintreg_t esr_el2)
 {
 	struct vcpu *vcpu = current();
-	ffa_vm_id_t vm_id = vcpu->vm->id;
+	uint16_t vm_id = vcpu->vm->id;
 	uintreg_t ec = GET_ESR_EC(esr_el2);
 
 	CHECK(ec == EC_MSR);
@@ -1135,6 +1035,16 @@ void handle_system_register_access(uintreg_t esr_el2)
 		}
 	} else if (feature_id_is_register_access(esr_el2)) {
 		if (!feature_id_process_access(vcpu, esr_el2)) {
+			inject_el1_unknown_exception(vcpu, esr_el2);
+			return;
+		}
+	} else if (icc_icv_is_register_access(esr_el2)) {
+		if (!icc_icv_process_access(vcpu, esr_el2)) {
+			inject_el1_unknown_exception(vcpu, esr_el2);
+			return;
+		}
+	} else if (is_cache_maintenance(esr_el2)) {
+		if (!process_cache_maintenance(vcpu, esr_el2)) {
 			inject_el1_unknown_exception(vcpu, esr_el2);
 			return;
 		}

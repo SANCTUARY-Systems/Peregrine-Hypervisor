@@ -8,10 +8,10 @@
 
 #include <stdint.h>
 
-#include "hf/ffa.h"
-#include "hf/std.h"
+#include "pg/ffa.h"
+#include "pg/std.h"
 
-#include "vmapi/hf/call.h"
+#include "vmapi/pg/call.h"
 
 #include "primary_with_secondary.h"
 #include "test/hftest.h"
@@ -88,7 +88,7 @@ TEST(mailbox, echo)
 	/* Set the message, echo it and check it didn't change. */
 	memcpy_s(mb.send, FFA_MSG_PAYLOAD_MAX, message, sizeof(message));
 	EXPECT_EQ(
-		ffa_msg_send(HF_PRIMARY_VM_ID, SERVICE_VM1, sizeof(message), 0)
+		ffa_msg_send(PG_PRIMARY_VM_ID, SERVICE_VM1, sizeof(message), 0)
 			.func,
 		FFA_SUCCESS_32);
 	run_res = ffa_run(SERVICE_VM1, 0);
@@ -120,7 +120,7 @@ TEST(mailbox, repeated_echo)
 		next_permutation(message, sizeof(message) - 1);
 		memcpy_s(mb.send, FFA_MSG_PAYLOAD_MAX, message,
 			 sizeof(message));
-		EXPECT_EQ(ffa_msg_send(HF_PRIMARY_VM_ID, SERVICE_VM1,
+		EXPECT_EQ(ffa_msg_send(PG_PRIMARY_VM_ID, SERVICE_VM1,
 				       sizeof(message), 0)
 				  .func,
 			  FFA_SUCCESS_32);
@@ -159,13 +159,13 @@ TEST(mailbox, relay)
 	{
 		ffa_vm_id_t *chain = (ffa_vm_id_t *)mb.send;
 		*chain++ = htole32(SERVICE_VM2);
-		*chain++ = htole32(HF_PRIMARY_VM_ID);
+		*chain++ = htole32(PG_PRIMARY_VM_ID);
 		memcpy_s(chain, FFA_MSG_PAYLOAD_MAX - (2 * sizeof(ffa_vm_id_t)),
 			 message, sizeof(message));
 
 		EXPECT_EQ(
 			ffa_msg_send(
-				HF_PRIMARY_VM_ID, SERVICE_VM1,
+				PG_PRIMARY_VM_ID, SERVICE_VM1,
 				sizeof(message) + (2 * sizeof(ffa_vm_id_t)), 0)
 				.func,
 			FFA_SUCCESS_32);
@@ -182,7 +182,7 @@ TEST(mailbox, relay)
 	EXPECT_EQ(run_res.func, FFA_MSG_SEND_32);
 
 	/* Ensure the message is intact. */
-	EXPECT_EQ(ffa_receiver(run_res), HF_PRIMARY_VM_ID);
+	EXPECT_EQ(ffa_receiver(run_res), PG_PRIMARY_VM_ID);
 	EXPECT_EQ(ffa_msg_send_size(run_res), sizeof(message));
 	EXPECT_EQ(memcmp(mb.recv, message, sizeof(message)), 0);
 	EXPECT_EQ(ffa_rx_release().func, FFA_SUCCESS_32);
@@ -198,14 +198,14 @@ TEST(mailbox, no_primary_to_secondary_notification_on_configure)
 
 	set_up_mailbox();
 
-	EXPECT_FFA_ERROR(ffa_msg_send(HF_PRIMARY_VM_ID, SERVICE_VM1, 0, 0),
+	EXPECT_FFA_ERROR(ffa_msg_send(PG_PRIMARY_VM_ID, SERVICE_VM1, 0, 0),
 			 FFA_BUSY);
 
 	run_res = ffa_run(SERVICE_VM1, 0);
 	EXPECT_EQ(run_res.func, FFA_MSG_WAIT_32);
 	EXPECT_EQ(run_res.arg2, FFA_SLEEP_INDEFINITE);
 
-	EXPECT_EQ(ffa_msg_send(HF_PRIMARY_VM_ID, SERVICE_VM1, 0, 0).func,
+	EXPECT_EQ(ffa_msg_send(PG_PRIMARY_VM_ID, SERVICE_VM1, 0, 0).func,
 		  FFA_SUCCESS_32);
 }
 
@@ -219,7 +219,7 @@ TEST(mailbox, secondary_to_primary_notification_on_configure)
 
 	set_up_mailbox();
 
-	EXPECT_FFA_ERROR(ffa_msg_send(HF_PRIMARY_VM_ID, SERVICE_VM1, 0,
+	EXPECT_FFA_ERROR(ffa_msg_send(PG_PRIMARY_VM_ID, SERVICE_VM1, 0,
 				      FFA_MSG_SEND_NOTIFY),
 			 FFA_BUSY);
 
@@ -231,11 +231,11 @@ TEST(mailbox, secondary_to_primary_notification_on_configure)
 	EXPECT_EQ(run_res.func, FFA_RX_RELEASE_32);
 
 	/* A single waiter is returned. */
-	EXPECT_EQ(hf_mailbox_waiter_get(SERVICE_VM1), HF_PRIMARY_VM_ID);
-	EXPECT_EQ(hf_mailbox_waiter_get(SERVICE_VM1), -1);
+	EXPECT_EQ(pg_mailbox_waiter_get(SERVICE_VM1), PG_PRIMARY_VM_ID);
+	EXPECT_EQ(pg_mailbox_waiter_get(SERVICE_VM1), -1);
 
 	/* Send should now succeed. */
-	EXPECT_EQ(ffa_msg_send(HF_PRIMARY_VM_ID, SERVICE_VM1, 0, 0).func,
+	EXPECT_EQ(ffa_msg_send(PG_PRIMARY_VM_ID, SERVICE_VM1, 0, 0).func,
 		  FFA_SUCCESS_32);
 }
 
@@ -259,7 +259,7 @@ TEST(mailbox, primary_to_secondary)
 	/* Send a message to echo service, and get response back. */
 	memcpy_s(mb.send, FFA_MSG_PAYLOAD_MAX, message, sizeof(message));
 	EXPECT_EQ(
-		ffa_msg_send(HF_PRIMARY_VM_ID, SERVICE_VM1, sizeof(message), 0)
+		ffa_msg_send(PG_PRIMARY_VM_ID, SERVICE_VM1, sizeof(message), 0)
 			.func,
 		FFA_SUCCESS_32);
 	run_res = ffa_run(SERVICE_VM1, 0);
@@ -278,26 +278,26 @@ TEST(mailbox, primary_to_secondary)
 
 	/* Message should be dropped since the mailbox was not cleared. */
 	EXPECT_EQ(
-		ffa_msg_send(HF_PRIMARY_VM_ID, SERVICE_VM1, sizeof(message), 0)
+		ffa_msg_send(PG_PRIMARY_VM_ID, SERVICE_VM1, sizeof(message), 0)
 			.func,
 		FFA_SUCCESS_32);
 	run_res = ffa_run(SERVICE_VM1, 0);
-	EXPECT_EQ(run_res.func, HF_FFA_RUN_WAIT_FOR_INTERRUPT);
+	EXPECT_EQ(run_res.func, PG_FFA_RUN_WAIT_FOR_INTERRUPT);
 	EXPECT_EQ(run_res.arg2, FFA_SLEEP_INDEFINITE);
 
 	/* Clear the mailbox. We expect to be told there are pending waiters. */
 	EXPECT_EQ(ffa_rx_release().func, FFA_RX_RELEASE_32);
 
 	/* Retrieve a single waiter. */
-	EXPECT_EQ(hf_mailbox_waiter_get(HF_PRIMARY_VM_ID), SERVICE_VM1);
-	EXPECT_EQ(hf_mailbox_waiter_get(HF_PRIMARY_VM_ID), -1);
+	EXPECT_EQ(pg_mailbox_waiter_get(PG_PRIMARY_VM_ID), SERVICE_VM1);
+	EXPECT_EQ(pg_mailbox_waiter_get(PG_PRIMARY_VM_ID), -1);
 
 	/*
 	 * Inject interrupt into VM and let it run again. We should receive
 	 * the echoed message.
 	 */
 	EXPECT_EQ(
-		hf_interrupt_inject(SERVICE_VM1, 0, HF_MAILBOX_WRITABLE_INTID),
+		pg_interrupt_inject(SERVICE_VM1, 0, PG_MAILBOX_WRITABLE_INTID),
 		1);
 	run_res = ffa_run(SERVICE_VM1, 0);
 	EXPECT_EQ(run_res.func, FFA_MSG_SEND_32);
@@ -326,10 +326,10 @@ TEST(mailbox, secondary_to_primary_notification)
 	/* Send a message to echo service twice. The second should fail. */
 	memcpy_s(mb.send, FFA_MSG_PAYLOAD_MAX, message, sizeof(message));
 	EXPECT_EQ(
-		ffa_msg_send(HF_PRIMARY_VM_ID, SERVICE_VM1, sizeof(message), 0)
+		ffa_msg_send(PG_PRIMARY_VM_ID, SERVICE_VM1, sizeof(message), 0)
 			.func,
 		FFA_SUCCESS_32);
-	EXPECT_FFA_ERROR(ffa_msg_send(HF_PRIMARY_VM_ID, SERVICE_VM1,
+	EXPECT_FFA_ERROR(ffa_msg_send(PG_PRIMARY_VM_ID, SERVICE_VM1,
 				      sizeof(message), FFA_MSG_SEND_NOTIFY),
 			 FFA_BUSY);
 
@@ -345,12 +345,12 @@ TEST(mailbox, secondary_to_primary_notification)
 	EXPECT_EQ(run_res.func, FFA_RX_RELEASE_32);
 
 	/* Retrieve a single waiter. */
-	EXPECT_EQ(hf_mailbox_waiter_get(SERVICE_VM1), HF_PRIMARY_VM_ID);
-	EXPECT_EQ(hf_mailbox_waiter_get(SERVICE_VM1), -1);
+	EXPECT_EQ(pg_mailbox_waiter_get(SERVICE_VM1), PG_PRIMARY_VM_ID);
+	EXPECT_EQ(pg_mailbox_waiter_get(SERVICE_VM1), -1);
 
 	/* Send should now succeed. */
 	EXPECT_EQ(
-		ffa_msg_send(HF_PRIMARY_VM_ID, SERVICE_VM1, sizeof(message), 0)
+		ffa_msg_send(PG_PRIMARY_VM_ID, SERVICE_VM1, sizeof(message), 0)
 			.func,
 		FFA_SUCCESS_32);
 }

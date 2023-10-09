@@ -9,7 +9,9 @@
 #include <stdint.h>
 #include <stdnoreturn.h>
 
-#include "hf/panic.h"
+#include "pg/panic.h"
+#include "pg/arch/stack_protector.h"
+#include "pg/arch/plat/prng.h"
 
 /**
  * This is the value that is used as the stack canary. It is written to the top
@@ -20,9 +22,13 @@
  * is a global variable and there are multiple CPUs executing concurrently, this
  * value cannot change after being initialized.
  *
- * TODO: initialize to a random value at boot.
  */
-uint64_t __attribute__((used)) __stack_chk_guard = 0x72afaf72bad0feed;
+uint64_t __attribute__((used)) __stack_chk_guard;
+
+uint64_t __stack_chk_guard_setup(void) {
+	uint64_t rnd_val = plat_prng_get_number();
+	return 0x72afaf72bad0feed ^ rnd_val;
+}
 
 /**
  * Called when the stack canary is invalid. The stack can no longer be trusted

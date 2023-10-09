@@ -6,14 +6,58 @@
  * https://opensource.org/licenses/BSD-3-Clause.
  */
 
-#include "hf/std.h"
-
-#include "hf/check.h"
+#include "pg/std.h"
+#include "pg/arch/std.h"
+#include "pg/check.h"
 
 /* Declare unsafe functions locally so they are not available globally. */
+#if 0
 void *memset(void *s, int c, size_t n);
 void *memcpy(void *dst, const void *src, size_t n);
 void *memmove(void *dst, const void *src, size_t n);
+#endif
+
+
+void uint64_to_uint64_pair(uint64_t *dest_high, uint64_t *dest_low, uint64_t src)
+{
+	*dest_high = src >> 32;
+	*dest_low = (uint32_t)src;
+}
+
+uint64_t uint64_pair_to_uint64(uint64_t *src_high, uint64_t *src_low)
+{
+	return (*src_high << 32 | (uint32_t)*src_low);
+}
+
+/* TODO: move these two atomic functions to a more appropriate file */
+bool atomic_inc(atomic_int *val, int less_than)
+{
+	int new_val;
+	int old_val = atomic_load(val);
+	do {
+		if (old_val > less_than) {
+			return false;
+		}
+		new_val = old_val + 1;
+	} while (!atomic_compare_exchange_weak(val, &old_val, new_val));
+
+	return true;
+}
+
+bool __atomic_dec(atomic_int *val, int less_than)
+{
+	int new_val;
+	int old_val = atomic_load(val);
+	do {
+		if (old_val <= less_than) {
+			return false;
+		}
+		new_val = old_val - 1;
+	} while (!atomic_compare_exchange_weak(val, &old_val, new_val));
+
+	return true;
+}
+
 
 /*
  * As per the C11 specification, mem*_s() operations fill the destination buffer
@@ -35,19 +79,18 @@ void *memmove(void *dst, const void *src, size_t n);
 
 void memset_s(void *dest, rsize_t destsz, int ch, rsize_t count)
 {
-	CHECK_OR_FILL(dest != NULL, dest, destsz, ch);
-
-	/* Check count <= destsz <= RSIZE_MAX. */
-	CHECK_OR_FILL(destsz <= RSIZE_MAX, dest, destsz, ch);
-	CHECK_OR_FILL(count <= destsz, dest, destsz, ch);
+	if (dest == NULL || destsz > RSIZE_MAX) {
+		panic("memset_s failed as either dest == NULL "
+		      "or destsz > RSIZE_MAX.\n");
+	}
 
 	/*
 	 * Clang analyzer doesn't like us calling unsafe memory functions, so
 	 * make it ignore this call.
 	 */
-#ifndef __clang_analyzer__
-	memset(dest, ch, count);
-#endif
+
+	// NOLINTNEXTLINE
+	memset_peregrine(dest, ch, count);
 }
 
 void memcpy_s(void *dest, rsize_t destsz, const void *src, rsize_t count)
@@ -71,9 +114,8 @@ void memcpy_s(void *dest, rsize_t destsz, const void *src, rsize_t count)
 	CHECK_OR_ZERO_FILL(d < s || d >= (s + count), dest, destsz);
 	CHECK_OR_ZERO_FILL(d > s || s >= (d + count), dest, destsz);
 
-#ifndef __clang_analyzer__
-	memcpy(dest, src, count);
-#endif
+	// NOLINTNEXTLINE
+	memcpy_peregrine(dest, src, count);
 }
 
 void memmove_s(void *dest, rsize_t destsz, const void *src, rsize_t count)
@@ -85,33 +127,8 @@ void memmove_s(void *dest, rsize_t destsz, const void *src, rsize_t count)
 	CHECK_OR_ZERO_FILL(destsz <= RSIZE_MAX, dest, destsz);
 	CHECK_OR_ZERO_FILL(count <= destsz, dest, destsz);
 
-#ifndef __clang_analyzer__
-	memmove(dest, src, count);
-#endif
-}
-
-/**
- * Finds the first occurrence of character `ch` in the first `count` bytes of
- * memory pointed to by `ptr`.
- *
- * Returns NULL if `ch` is not found.
- * Panics if `ptr` is NULL (undefined behaviour).
- */
-void *memchr(const void *ptr, int ch, size_t count)
-{
-	size_t i;
-	const unsigned char *p = (const unsigned char *)ptr;
-
-	CHECK(ptr != NULL);
-
-	/* Iterate over at most `strsz` characters of `str`. */
-	for (i = 0; i < count; ++i) {
-		if (p[i] == (unsigned char)ch) {
-			return (void *)(&p[i]);
-		}
-	}
-
-	return NULL;
+	// NOLINTNEXTLINE
+	memmove_peregrine(dest, src, count);
 }
 
 /**
@@ -135,4 +152,16 @@ size_t strnlen_s(const char *str, size_t strsz)
 
 	/* NULL character not found. */
 	return strsz;
+}
+
+void memset_unsafe(void *dest, int ch, rsize_t count) {
+	memset_peregrine(dest, ch, count);
+}
+
+void memcpy_unsafe(void *dest, const void *src, rsize_t count) {
+	memcpy_peregrine(dest, src, count);
+}
+
+void memmove_unsafe(void *dest, const void *src, rsize_t count) {
+	memmove_peregrine(dest, src, count);
 }

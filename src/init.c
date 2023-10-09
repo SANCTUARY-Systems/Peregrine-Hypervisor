@@ -6,36 +6,66 @@
  * https://opensource.org/licenses/BSD-3-Clause.
  */
 
-#include "hf/arch/init.h"
+#include "pg/arch/init.h"
 
 #include <stdalign.h>
 #include <stddef.h>
 
-#include "hf/arch/other_world.h"
-#include "hf/arch/plat/ffa.h"
+#include "../inc/pg/pma.h"
 
-#include "hf/api.h"
-#include "hf/boot_flow.h"
-#include "hf/boot_params.h"
-#include "hf/cpio.h"
-#include "hf/cpu.h"
-#include "hf/dlog.h"
-#include "hf/fdt_handler.h"
-#include "hf/load.h"
-#include "hf/mm.h"
-#include "hf/mpool.h"
-#include "hf/panic.h"
-#include "hf/plat/boot_flow.h"
-#include "hf/plat/console.h"
-#include "hf/plat/iommu.h"
-#include "hf/std.h"
-#include "hf/vm.h"
+#include "pg/api.h"
+#include "pg/boot_flow.h"
+#include "pg/boot_params.h"
+#include "pg/cpio.h"
+#include "pg/cpu.h"
+#include "pg/dlog.h"
+#include "pg/fdt_handler.h"
+#include "pg/load.h"
+#include "pg/mm.h"
+#include "pg/mpool.h"
+#include "pg/panic.h"
+#include "pg/plat/boot_flow.h"
+#include "pg/plat/console.h"
+#include "pg/plat/iommu.h"
+#include "pg/std.h"
+#include "pg/vm.h"
+#include "pg/cpu.h"
+#include "pg/load.h"
 
-#include "vmapi/hf/call.h"
+#include "psci.h"
+
+#include "pg/arch/tee/mediator.h"
+#include "pg/arch/tee/default_mediator.h"
+
+/* Include macro for external mediators */
+#ifdef EXTERNAL_MEDIATOR_INCLUDE
+#  include STRINGIFY(EXTERNAL_MEDIATOR_INCLUDE)
+#endif
+
+#include "vmapi/pg/call.h"
+
+#include <smc.h>
+#define PSCI_CPU_ON_AARCH64		0xc4000003
+
 
 alignas(MM_PPOOL_ENTRY_SIZE) char ptable_buf[MM_PPOOL_ENTRY_SIZE * HEAP_PAGES];
 
-static struct mpool ppool;
+static alignas(MM_PPOOL_ENTRY_SIZE) struct manifest manifest_raw;
+
+struct mpool ppool;
+
+/* get_ppool - reference getter for ppool
+ *  @return : address of ppool
+ *
+ * Needed when mapping devices to VM address spaces (on demand).
+ */
+struct mpool *
+get_ppool(void)
+{
+    return &ppool;
+}
+
+void cpu_entry(struct cpu *c);
 
 /**
  * Performs one-time initialisation of memory management for the hypervisor.
@@ -49,7 +79,7 @@ void one_time_init_mm(void)
 	/* Make sure the console is initialised before calling dlog. */
 	plat_console_init();
 
-	plat_ffa_log_init();
+	dlog_info("Initializing Peregrine Hypervisor\n");
 
 	mpool_init(&ppool, MM_PPOOL_ENTRY_SIZE);
 	mpool_add_chunk(&ppool, ptable_buf, sizeof(ptable_buf));
@@ -65,16 +95,24 @@ void one_time_init_mm(void)
 void one_time_init(void)
 {
 	struct string manifest_fname = STRING_INIT("manifest.dtb");
+	struct memiter manifest_it;
+	struct memiter manifest_sig_it;
+
+#if MEASURED_BOOT
+	struct string manifest_sig_fname = STRING_INIT("manifest_signature.sig");
+#endif
 	struct fdt fdt;
-	struct manifest manifest;
-	enum manifest_return_code manifest_ret;
+	
+	struct manifest *manifest = &manifest_raw;
+
 	struct boot_params params;
 	struct boot_params_update update;
 	struct memiter cpio;
-	struct memiter manifest_it;
+
 	void *initrd;
 	size_t i;
 	struct mm_stage1_locked mm_stage1_locked;
+	bool sw_enabled = false;
 
 	arch_one_time_init();
 
@@ -88,53 +126,76 @@ void one_time_init(void)
 		     &ppool)) {
 		panic("Unable to map FDT.");
 	}
+	dlog_debug("fdt_address: %#x\n", plat_boot_flow_get_fdt_addr);
+
 
 	if (!boot_flow_get_params(&params, &fdt)) {
 		panic("Could not parse boot params.");
 	}
 
+	/* Initialize physical CPU structure */
+	if (params.cpu_count > MAX_CPUS) {
+		panic("Found more than %d CPUs\n", MAX_CPUS);
+	}
+
 	for (i = 0; i < params.mem_ranges_count; ++i) {
-		dlog_info("Memory range:  %#x - %#x\n",
+		dlog_debug("Memory range:  %#x - %#x\n",
 			  pa_addr(params.mem_ranges[i].begin),
 			  pa_addr(params.mem_ranges[i].end) - 1);
 	}
 
-	/*
-	 * Hafnium manifest is either gathered from the ramdisk or passed
-	 * directly to Hafnium entry point by the earlier bootloader stage.
-	 * If the ramdisk start address is non-zero it hints the manifest
-	 * shall be looked up from the ramdisk. If zero, assume the address
-	 * passed to Hafnium entry point is the manifest address.
-	 */
-	if (pa_addr(params.initrd_begin)) {
-		dlog_info("Ramdisk range: %#x - %#x\n",
-			  pa_addr(params.initrd_begin),
-			  pa_addr(params.initrd_end) - 1);
 
-		/* Map initrd in, and initialise cpio parser. */
-		initrd = mm_identity_map(mm_stage1_locked, params.initrd_begin,
-					 params.initrd_end, MM_MODE_R, &ppool);
-		if (!initrd) {
-			panic("Unable to map initrd.");
-		}
+	if (!pa_addr(params.initrd_begin)) {
+		panic("No Ramdisk!");
+	}
+	dlog_debug("Ramdisk range: %#x - %#x\n",
+		  pa_addr(params.initrd_begin),
+		  pa_addr(params.initrd_end) - 1);
 
-		memiter_init(
-			&cpio, initrd,
-			pa_difference(params.initrd_begin, params.initrd_end));
-
-		if (!cpio_get_file(&cpio, &manifest_fname, &manifest_it)) {
-			panic("Could not find manifest in initrd.");
-		}
-	} else {
-		manifest_it = fdt.buf;
+	/* Map initrd in, and initialise cpio parser. */
+	initrd = mm_identity_map_and_reserve(mm_stage1_locked, params.initrd_begin,
+				 params.initrd_end, MM_MODE_R, &ppool);
+	if (!initrd) {
+		panic("Unable to map initrd.");
 	}
 
-	manifest_ret = manifest_init(mm_stage1_locked, &manifest, &manifest_it,
-				     &ppool);
+	memiter_init(
+		&cpio, initrd,
+		pa_difference(params.initrd_begin, params.initrd_end));
 
-	if (manifest_ret != MANIFEST_SUCCESS) {
-		panic("Could not parse manifest: %s.",
-		      manifest_strerror(manifest_ret));
+	/* Get manifest binary */
+	if (!cpio_get_file(&cpio, &manifest_fname, &manifest_it)) {
+		panic("Could not find manifest in initrd.");
+	}
+
+#if MEASURED_BOOT
+	/* Get manifest signature */
+	if (!cpio_get_file(&cpio, &manifest_sig_fname, &manifest_sig_it)) {
+		panic("Could not find manifest signature in initrd.");
+	}
+#endif
+	dlog_info("Manifest range: %#x - %#x (%d bytes)\n", manifest_it.next,
+				manifest_it.limit, manifest_it.limit - manifest_it.next);
+
+	if (!is_aligned(manifest_it.next, 4)) {
+		panic("Manifest not aligned.");
+	}
+
+	/* Register external mediator - defaults to false if none available */
+	if (!register_external_mediator(&fdt)) {
+		dlog_info("Registering default mediator.\n");
+		register_default_mediator();
+	}
+
+	/* Call mediator probe after initialzation to populate manifest */
+	if (!tee_mediator_ops.probe(mm_stage1_locked, &ppool, &manifest_it, &manifest_sig_it, &manifest)) {
+		dlog_error("Could not probe mediator. (Re-) Loading default mediator...\n");
+		unregister_mediator();
+		register_default_mediator();
+		if (!tee_mediator_ops.probe(mm_stage1_locked, &ppool, &manifest_it, &manifest_sig_it, &manifest))
+			panic("Could not parse manifest.");
+	} else {
+		sw_enabled = true;
 	}
 
 	if (!plat_iommu_init(&fdt, mm_stage1_locked, &ppool)) {
@@ -149,27 +210,63 @@ void one_time_init(void)
 
 	/* Load all VMs. */
 	update.reserved_ranges_count = 0;
-	if (!load_vms(mm_stage1_locked, &manifest, &cpio, &params, &update,
+	if (!load_vms(mm_stage1_locked, manifest, &cpio, &params, &update,
 		      &ppool)) {
 		panic("Unable to load VMs.");
 	}
 
-	if (!boot_flow_update(mm_stage1_locked, &manifest, &update, &cpio,
+	if (sw_enabled) {
+		for (i = 0; i < manifest->vm_count; i++) {
+			/* Call per-VM init function of the mediator */
+			int ret = tee_mediator_ops.vm_init(i, &manifest_it, &manifest->vm[i]);
+			if (ret != 0x0) {
+				panic("[VM %u] verification failed. Aborting.", (uint16_t) (i + 1));
+			}
+		}
+	} else {
+		dlog_warning("VMs could not be verified, no TOS found.\n");
+	}
+
+	/* Load devices of all VMs */
+	for (i = 0; i < manifest->vm_count; i++) {
+		if (!load_devices(mm_stage1_locked, &manifest->vm[i], &ppool)) {
+			panic("[VM %u] assignment of devices failed. Aborting.", (uint16_t) (i + 1));
+		}
+	}
+
+	#if LOG_LEVEL >= LOG_LEVEL_DEBUG
+	for (i = 0; i < manifest->vm_count; i++) {
+		print_manifest(&manifest->vm[i], i);
+	}
+	#endif
+
+	if (!boot_flow_update(mm_stage1_locked, manifest, &update, &cpio,
 			      &ppool)) {
 		panic("Unable to update boot flow.");
 	}
 
-	mm_defrag(mm_stage1_locked, &ppool);
 	mm_unlock_stage1(&mm_stage1_locked);
-
-	/* Initialise the API page pool. ppool will be empty from now on. */
-	api_init(&ppool);
 
 	/* Enable TLB invalidation for VM page table updates. */
 	mm_vm_enable_invalidation();
 
-	/* Set up message buffers for TEE dispatcher. */
-	plat_ffa_init(manifest.ffa_tee_enabled);
+	dlog_info("Peregrine initialisation completed\n");
+	dlog_debug("VM count: %u\n", vm_get_count());
 
-	dlog_info("Hafnium initialisation completed\n");
+	/* Boot all secondary VMs in reverse order */
+	uint32_t smc_fid = PSCI_CPU_ON;
+	uintptr_t caller_id = HYPERVISOR_ID;
+	uintptr_t entrypoint = (uintreg_t)&cpu_entry;
+	struct vm* vm;
+	cpu_id_t vm_primary_core;
+	struct cpu *c;
+
+	for (int i = vm_get_count()-1; i > 0; i--) {
+		vm = vm_find_index(i);
+		vm_primary_core = vm->cpus[0];
+		c = cpu_find(vm_primary_core);
+
+		dlog_info("Starting VM 0x%x by booting vCPU 0x0 on CPU 0x%x\n", vm->id, c->id);
+		smc64(smc_fid, c->id, entrypoint, (uintreg_t)c, 0, 0, 0, caller_id);
+	}
 }

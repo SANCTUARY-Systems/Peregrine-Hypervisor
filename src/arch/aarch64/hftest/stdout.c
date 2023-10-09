@@ -6,11 +6,11 @@
  * https://opensource.org/licenses/BSD-3-Clause.
  */
 
-#include "hf/stdout.h"
+#include "pg/stdout.h"
 
-#include "vmapi/hf/call.h"
+#include "vmapi/pg/call.h"
 
 void stdout_putchar(char c)
 {
-	hf_debug_log(c);
+	pg_debug_log(c);
 }

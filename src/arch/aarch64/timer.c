@@ -6,15 +6,15 @@
  * https://opensource.org/licenses/BSD-3-Clause.
  */
 
-#include "hf/arch/timer.h"
+#include "pg/arch/timer.h"
 
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
-#include "hf/arch/cpu.h"
+#include "pg/arch/cpu.h"
 
-#include "hf/addr.h"
+#include "pg/addr.h"
 
 #include "msr.h"
 #include "sysregs.h"

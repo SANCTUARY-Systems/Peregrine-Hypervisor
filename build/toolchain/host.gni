@@ -13,8 +13,8 @@ template("host_cc_toolchain") {
 
     # Collect extra flags from the toolchain.
     extra_defines = ""
-    extra_cflags = ""
-    extra_ldflags = ""
+    extra_cflags = "-fprofile-instr-generate -fcoverage-mapping"
+    extra_ldflags = "-fprofile-instr-generate -fcoverage-mapping"
     if (defined(invoker.extra_defines)) {
       extra_defines += " ${invoker.extra_defines}"
     }
@@ -120,10 +120,6 @@ template("host_toolchain") {
   if (invoker.use_platform) {
     assert(defined(invoker.heap_pages),
            "\"heap_pages\" must be defined for ${target_name}.")
-    assert(defined(invoker.max_cpus),
-           "\"max_cpus\" must be defined for ${target_name}.")
-    assert(defined(invoker.max_vms),
-           "\"max_vms\" must be defined for ${target_name}.")
   }
 
   # Specialize for clang.
@@ -133,7 +129,12 @@ template("host_toolchain") {
     cxx = "clang++ -fcolor-diagnostics -stdlib=libc++"
 
     # TODO: remove the need for this
-    extra_defines = "-DPL011_BASE=0"
+    extra_defines = "-DUART_BASE=0"
+
+    if (defined(invoker.external_mediator_include))
+    {
+        extra_defines += " -DEXTERNAL_MEDIATOR_INCLUDE=${invoker.external_mediator_include}"
+    }
 
     if (invoker.use_platform) {
       toolchain_args = {
@@ -146,8 +147,19 @@ template("host_toolchain") {
         plat_console = "//src/arch/fake:console"
         plat_iommu = "//src/iommu:absent"
         plat_heap_pages = invoker.heap_pages
-        plat_max_cpus = invoker.max_cpus
-        plat_max_vms = invoker.max_vms
+        if (defined(invoker.test_mode)) {
+          plat_test_mode = invoker.test_mode
+        }
+
+        plat_proprietary = ""
+        plat_proprietary_unit = ""
+        plat_proprietary_inc = ""
+
+        if (defined(invoker.proprietary) && invoker.proprietary != "") {
+          plat_proprietary_unit = "${invoker.proprietary}:unit_tests"
+          plat_proprietary = "${invoker.proprietary}:proprietary"
+          plat_proprietary_inc = "${invoker.proprietary}/inc"
+        }
       }
     }
   }

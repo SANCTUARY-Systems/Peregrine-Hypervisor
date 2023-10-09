@@ -6,26 +6,26 @@
  * https://opensource.org/licenses/BSD-3-Clause.
  */
 
-#include "hf/arch/irq.h"
-#include "hf/arch/vm/interrupts.h"
+#include "pg/arch/irq.h"
+#include "pg/arch/vm/interrupts.h"
 
-#include "hf/ffa.h"
-#include "hf/std.h"
+#include "pg/ffa.h"
+#include "pg/std.h"
 
-#include "vmapi/hf/call.h"
+#include "vmapi/pg/call.h"
 
 #include "../msr.h"
 #include "test/hftest.h"
 
 static void irq(void)
 {
-	hf_interrupt_get();
+	pg_interrupt_get();
 }
 
 static void wait_for_vm(uint32_t vmid)
 {
 	for (;;) {
-		int64_t w = hf_mailbox_writable_get();
+		int64_t w = pg_mailbox_writable_get();
 		if (w == vmid) {
 			return;
 		}
@@ -41,7 +41,7 @@ static void wait_for_vm(uint32_t vmid)
 TEST_SERVICE(echo_with_notification)
 {
 	exception_setup(irq, NULL);
-	hf_interrupt_enable(HF_MAILBOX_WRITABLE_INTID, true,
+	pg_interrupt_enable(PG_MAILBOX_WRITABLE_INTID, true,
 			    INTERRUPT_TYPE_IRQ);
 
 	/* Loop, echo messages back to the sender. */

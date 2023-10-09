@@ -6,9 +6,9 @@
  * https://opensource.org/licenses/BSD-3-Clause.
  */
 
-#include "hf/dlog.h"
+#include "pg/dlog.h"
 
-#include "vmapi/hf/call.h"
+#include "vmapi/pg/call.h"
 
 #include "../msr.h"
 #include "sysregs.h"
@@ -31,7 +31,7 @@ void exception_handler_send_exception_count(void)
 	memcpy_s(send_buf, FFA_MSG_PAYLOAD_MAX,
 		 (const void *)&exception_handler_exception_count,
 		 sizeof(exception_handler_exception_count));
-	EXPECT_EQ(ffa_msg_send(hf_vm_get_id(), HF_PRIMARY_VM_ID,
+	EXPECT_EQ(ffa_msg_send(pg_vm_get_id(), PG_PRIMARY_VM_ID,
 			       sizeof(exception_handler_exception_count), 0)
 			  .func,
 		  FFA_SUCCESS_32);

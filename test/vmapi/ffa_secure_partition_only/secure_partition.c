@@ -6,14 +6,14 @@
  * https://opensource.org/licenses/BSD-3-Clause.
  */
 
-#include "vmapi/hf/call.h"
+#include "vmapi/pg/call.h"
 
 #include "test/hftest.h"
 
 /**
  * Confirms that SP has expected ID.
  */
-TEST(hf_vm_get_id, secure_partition_id)
+TEST(pg_vm_get_id, secure_partition_id)
 {
-	EXPECT_EQ(hf_vm_get_id(), HF_VM_ID_BASE + 1);
+	EXPECT_EQ(pg_vm_get_id(), PG_VM_ID_BASE + 1);
 }

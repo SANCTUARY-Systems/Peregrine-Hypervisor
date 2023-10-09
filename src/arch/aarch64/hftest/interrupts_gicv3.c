@@ -6,12 +6,12 @@
  * https://opensource.org/licenses/BSD-3-Clause.
  */
 
-#include "hf/arch/vm/interrupts_gicv3.h"
+#include "pg/arch/vm/interrupts_gicv3.h"
 
 #include <stdbool.h>
 #include <stdint.h>
 
-#include "hf/dlog.h"
+#include "pg/dlog.h"
 
 #include "msr.h"
 

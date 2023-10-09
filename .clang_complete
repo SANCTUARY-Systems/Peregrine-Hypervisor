@@ -1,0 +1,6 @@
+-Iinc
+-Iinc/vmapi
+-Isrc/arch/aarch64
+-Isrc/arch/aarch64/inc
+-Isrc/arch/aarch64/arm_smmuv3
+-Isrc/arch/aarch64/hypervisor

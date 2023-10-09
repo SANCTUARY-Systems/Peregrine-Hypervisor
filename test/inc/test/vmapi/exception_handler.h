@@ -8,7 +8,7 @@
 
 #pragma once
 
-#include "vmapi/hf/ffa.h"
+#include "vmapi/pg/ffa.h"
 
 bool exception_handler_skip_instruction(void);
 

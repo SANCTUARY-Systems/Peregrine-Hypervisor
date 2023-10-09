@@ -9,7 +9,7 @@
 #include <gmock/gmock.h>
 
 extern "C" {
-#include "hf/string.h"
+#include "pg/string.h"
 }
 
 namespace
@@ -59,6 +59,26 @@ TEST(string, data_two_null_terminators)
 
 	memiter_init(&it, data, sizeof(data));
 	ASSERT_EQ(string_init(&str, &it), STRING_ERROR_INVALID_INPUT);
+}
+
+TEST(string, string_toul_ascii)
+{
+	char input[] = "12345";
+	unsigned long output = 0;
+
+	output = string_toul(input, (char **)NULL, 10);
+
+	EXPECT_EQ(output, 12345U);
+}
+
+TEST(string, string_toul_hex)
+{
+	char input[] = "0x12345";
+	unsigned long output = 0;
+
+	output = string_toul(input, (char **)NULL, 16);
+
+	EXPECT_EQ(output, 0x12345U);
 }
 
 } /* namespace */

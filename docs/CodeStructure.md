@@ -27,11 +27,11 @@ The source tree is organised as follows:
     in the primary VM.
 *   [`inc`](../inc): Header files...
     *   [`hf`](../inc/hf): ... internal to Hafnium
-        *   [`arch`](../inc/hf/arch): Architecture-dependent modules, which have
+        *   [`arch`](../inc/pg/arch): Architecture-dependent modules, which have
             a common interface but separate implementations per architecture.
             This includes details of CPU initialisation, exception handling,
             timers, page table management, and other system registers.
-        *   [`plat`](../inc/hf/plat): Platform-dependent modules, which have a
+        *   [`plat`](../inc/pg/plat): Platform-dependent modules, which have a
             common interface but separate implementations per platform. This
             includes details of the boot flow, and a UART driver for the debug
             log console.

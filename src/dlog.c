@@ -6,30 +6,16 @@
  * https://opensource.org/licenses/BSD-3-Clause.
  */
 
-#include "hf/dlog.h"
+#include "pg/dlog.h"
 
 #include <stdbool.h>
 #include <stddef.h>
 
-#include "hf/ffa.h"
-#include "hf/spinlock.h"
-#include "hf/std.h"
-#include "hf/stdout.h"
+#include "pg/spinlock.h"
+#include "pg/std.h"
+#include "pg/stdout.h"
 
 /* Keep macro alignment */
-/* clang-format off */
-
-#define FLAG_SPACE 0x01
-#define FLAG_ZERO  0x02
-#define FLAG_MINUS 0x04
-#define FLAG_PLUS  0x08
-#define FLAG_ALT   0x10
-#define FLAG_UPPER 0x20
-#define FLAG_NEG   0x40
-
-#define DLOG_MAX_STRING_LENGTH 64
-
-/* clang-format on */
 
 static bool dlog_lock_enabled = false;
 static struct spinlock sl = SPINLOCK_INIT;
@@ -38,28 +24,36 @@ static struct spinlock sl = SPINLOCK_INIT;
  * These global variables for the log buffer are not static because a test needs
  * to access them directly.
  */
+#if defined HOST_TESTING_MODE && HOST_TESTING_MODE != 0
 size_t dlog_buffer_offset;
 char dlog_buffer[DLOG_BUFFER_SIZE];
+#endif
 
-/**
- * Takes the lock, if it is enabled.
+/* dlog_lock - public dlog lock acquisition
+ *
+ * NOTE: this is used when we want to bypass dlog using stdout_putchar()
  */
-static void lock(void)
+void dlog_lock(void)
 {
-	if (dlog_lock_enabled) {
-		sl_lock(&sl);
-	}
+    if (dlog_lock_enabled) {
+        sl_lock(&sl);
+    }
 }
 
-/**
- * Releases the lock, if it is enabled.
+/* dlog_unlock - public dlog lock release
+ *
+ * NOTE: this is used when we want to bypass dlog using stdout_putchar()
  */
-static void unlock(void)
+void dlog_unlock(void)
 {
-	if (dlog_lock_enabled) {
-		sl_unlock(&sl);
-	}
+    if (dlog_lock_enabled) {
+        sl_unlock(&sl);
+    }
 }
+
+/* maintain compatibility with previous API, where dlog locking was static */
+static void lock(void)   __attribute__((alias("dlog_lock")));
+static void unlock(void) __attribute__((alias("dlog_unlock")));
 
 /**
  * Enables the lock protecting the serial device.
@@ -71,8 +65,10 @@ void dlog_enable_lock(void)
 
 static void dlog_putchar(char c)
 {
+#if defined HOST_TESTING_MODE && HOST_TESTING_MODE != 0
 	dlog_buffer[dlog_buffer_offset] = c;
 	dlog_buffer_offset = (dlog_buffer_offset + 1) % DLOG_BUFFER_SIZE;
+#endif
 	stdout_putchar(c);
 }
 
@@ -187,7 +183,7 @@ static void print_num(size_t v, size_t base, size_t width, int flags)
  * Parses the optional flags field of a printf-style format. It returns the spot
  * on the string where a non-flag character was found.
  */
-static const char *parse_flags(const char *p, int *flags)
+const char *parse_flags(const char *p, int *flags)
 {
 	for (;;) {
 		switch (*p) {
@@ -221,7 +217,7 @@ static const char *parse_flags(const char *p, int *flags)
  * Send the contents of the given VM's log buffer to the log, preceded by the VM
  * ID and followed by a newline.
  */
-void dlog_flush_vm_buffer(ffa_vm_id_t id, char buffer[], size_t length)
+void dlog_flush_vm_buffer(uint16_t id, char buffer[], size_t length)
 {
 	lock();
 
@@ -320,6 +316,8 @@ void vdlog(const char *fmt, va_list args)
 				p++;
 				break;
 
+			case 'l':
+				p++;
 			case 'u':
 				print_num(va_arg(args, size_t), 10, w, flags);
 				p++;

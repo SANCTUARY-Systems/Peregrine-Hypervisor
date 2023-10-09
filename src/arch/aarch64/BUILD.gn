@@ -5,18 +5,16 @@
 # https://opensource.org/licenses/BSD-3-Clause.
 
 import("args.gni")
+import("//build/toolchain/platform.gni")
 
 config("config") {
   include_dirs = [ "." ]
 }
 
 config("arch_config") {
-  assert(secure_world == "0" || secure_world == "1",
-         "secure world set to <${secure_world}>")
   assert(enable_vhe == "0" || enable_vhe == "1",
          "enable_vhe is set to <${enable_vhe}>")
   defines = [
-    "SECURE_WORLD=${secure_world}",
     "ENABLE_VHE=${enable_vhe}",
   ]
 }
@@ -30,6 +28,14 @@ source_set("arch") {
     "mm.c",
     "sysregs.c",
     "timer.c",
+    "addr_translator.c",
+    "emulator.c",
+    "virtioac.c",
+    "virt_devs.c",
+  ]
+
+  deps = [
+    "//src/arch/aarch64/virt_devs:virt_devs",
   ]
 }
 
@@ -51,5 +57,13 @@ source_set("entry") {
 source_set("smc") {
   sources = [
     "smc.c",
+  ]
+}
+
+source_set("src_testable") {
+  public_configs = [ "//src/arch/${plat_arch}:arch_config" ]
+  deps = [
+    "//src/arch/${plat_arch}/hypervisor",
+    "//src/arch/${plat_arch}/hypervisor:src_testable"
   ]
 }

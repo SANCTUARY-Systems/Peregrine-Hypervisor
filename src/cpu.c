@@ -6,19 +6,17 @@
  * https://opensource.org/licenses/BSD-3-Clause.
  */
 
-#include "hf/cpu.h"
+#include "pg/cpu.h"
 
 #include <stdalign.h>
 
-#include "hf/arch/cache.h"
+#include "pg/arch/cache.h"
 
-#include "hf/api.h"
-#include "hf/check.h"
-#include "hf/dlog.h"
+#include "pg/api.h"
+#include "pg/check.h"
+#include "pg/dlog.h"
 
-#include "vmapi/hf/call.h"
-
-#define STACK_SIZE PAGE_SIZE
+#include "vmapi/pg/call.h"
 
 /**
  * The stacks to be used by the CPUs.
@@ -28,41 +26,12 @@
  * happen, there may be coherency problems when the stack is being used before
  * caching is enabled.
  */
-alignas(PAGE_SIZE) static char callstacks[MAX_CPUS][STACK_SIZE];
+alignas(PAGE_SIZE) static char callstacks[MAX_CPUS][STACK_SIZE]; //TODO: add a guard page at the end of the stack(s) to detect and prevent overflows
 
 /* NOLINTNEXTLINE(misc-redundant-expression) */
 static_assert((STACK_SIZE % PAGE_SIZE) == 0, "Keep each stack page aligned.");
 static_assert((PAGE_SIZE % STACK_ALIGN) == 0,
 	      "Page alignment is too weak for the stack.");
-
-/**
- * Internal buffer used to store FF-A messages from a VM Tx. Its usage prevents
- * TOCTOU issues while Hafnium performs actions on information that would
- * otherwise be re-writable by the VM.
- *
- * Each buffer is owned by a single CPU. The buffer can only be used for
- * ffa_msg_send. The information stored in the buffer is only valid during the
- * ffa_msg_send request is performed.
- */
-alignas(PAGE_SIZE) static uint8_t cpu_message_buffer[MAX_CPUS][PAGE_SIZE];
-
-uint8_t *cpu_get_buffer(struct cpu *c)
-{
-	size_t cpu_indx = cpu_index(c);
-
-	CHECK(cpu_indx < MAX_CPUS);
-
-	return cpu_message_buffer[cpu_indx];
-}
-
-uint32_t cpu_get_buffer_size(struct cpu *c)
-{
-	size_t cpu_indx = cpu_index(c);
-
-	CHECK(cpu_indx < MAX_CPUS);
-
-	return sizeof(cpu_message_buffer[cpu_indx]);
-}
 
 /* State of all supported CPUs. The stack of the first one is initialized. */
 struct cpu cpus[MAX_CPUS] = {
@@ -77,7 +46,6 @@ uint32_t cpu_count = 1;
 void cpu_module_init(const cpu_id_t *cpu_ids, size_t count)
 {
 	uint32_t i;
-	uint32_t j;
 	cpu_id_t boot_cpu_id = cpus[0].id;
 	bool found_boot_cpu = false;
 
@@ -89,15 +57,20 @@ void cpu_module_init(const cpu_id_t *cpu_ids, size_t count)
 	 * CPU is initialized when it is found or in place of the last CPU if it
 	 * is not found.
 	 */
-	j = cpu_count;
+	/*
+	 * We don't initialize the CPUs in reverse order to keep the cores of
+	 * on one cluster together
+	 */
 	for (i = 0; i < cpu_count; ++i) {
 		struct cpu *c;
 		cpu_id_t id = cpu_ids[i];
 
 		if (found_boot_cpu || id != boot_cpu_id) {
-			--j;
-			c = &cpus[j];
-			c->stack_bottom = &callstacks[j][STACK_SIZE];
+			c = &cpus[i];
+			c->stack_bottom = &callstacks[i][STACK_SIZE];
+			//--j;
+			//c = &cpus[j];
+			//c->stack_bottom = &callstacks[j][STACK_SIZE];
 		} else {
 			found_boot_cpu = true;
 			c = &cpus[0];
@@ -106,6 +79,8 @@ void cpu_module_init(const cpu_id_t *cpu_ids, size_t count)
 
 		sl_init(&c->lock);
 		c->id = id;
+		/* Mark CPUs as unassigned */
+		c->is_assigned = false;
 	}
 
 	if (!found_boot_cpu) {
@@ -143,6 +118,7 @@ struct cpu *cpu_find_index(size_t index)
 bool cpu_on(struct cpu *c, ipaddr_t entry, uintreg_t arg)
 {
 	bool prev;
+	uint16_t cpu_index_local;
 
 	sl_lock(&c->lock);
 	prev = c->is_on;
@@ -151,8 +127,15 @@ bool cpu_on(struct cpu *c, ipaddr_t entry, uintreg_t arg)
 
 	if (!prev) {
 		/* This returns the first booted VM (e.g. primary in the NWd) */
-		struct vm *vm = vm_get_first_boot();
-		struct vcpu *vcpu = vm_get_vcpu(vm, cpu_index(c));
+		//struct vm *vm = vm_get_first_boot();
+		//struct vcpu *vcpu = vm_get_vcpu(vm, cpu_index(c));
+
+		struct vm *vm = vm_find_from_cpu(c);
+        cpu_index_local = vm_local_cpu_index(c);
+        RET(cpu_index_local == (uint16_t) -1, prev,
+            "Unable to identify vCPU index of CPU %#x\n", c->id);
+
+		struct vcpu *vcpu = vm_get_vcpu(vm, cpu_index_local);
 		struct vcpu_locked vcpu_locked;
 
 		vcpu_locked = vcpu_lock(vcpu);
@@ -179,8 +162,9 @@ void cpu_off(struct cpu *c)
 struct cpu *cpu_find(cpu_id_t id)
 {
 	size_t i;
+	uint32_t cpu_max = cpu_count > MAX_CPUS ? MAX_CPUS : cpu_count; // play it safe - makes static analysis happier
 
-	for (i = 0; i < cpu_count; i++) {
+	for (i = 0; i < cpu_max; i++) {
 		if (cpus[i].id == id) {
 			return &cpus[i];
 		}
@@ -188,3 +172,23 @@ struct cpu *cpu_find(cpu_id_t id)
 
 	return NULL;
 }
+
+/**
+ * Get next unassigned CPU
+ */
+struct cpu *cpu_get_next()
+{
+	size_t i;
+
+	for (i = 0; i < MAX_CPUS; i++) {
+		if (!(cpus[i].is_assigned)) {
+			cpus[i].is_assigned = true;
+			return &cpus[i];
+		}
+	}
+	return NULL;
+}
+
+
+
+

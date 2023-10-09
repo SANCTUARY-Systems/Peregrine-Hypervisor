@@ -11,7 +11,7 @@
 #include <gmock/gmock.h>
 
 extern "C" {
-#include "hf/mpool.h"
+#include "pg/mpool.h"
 }
 
 namespace

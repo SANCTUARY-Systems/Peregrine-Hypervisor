@@ -6,11 +6,11 @@
  * https://opensource.org/licenses/BSD-3-Clause.
  */
 
-#include "hf/arch/sve.h"
+#include "pg/arch/sve.h"
 
-#include "hf/cpu.h"
-#include "hf/offset_size_header.h"
-#include "hf/vm.h"
+#include "pg/cpu.h"
+#include "pg/offset_size_header.h"
+#include "pg/vm.h"
 
 DEFINE_SIZEOF(CPU_SIZE, struct cpu)
 

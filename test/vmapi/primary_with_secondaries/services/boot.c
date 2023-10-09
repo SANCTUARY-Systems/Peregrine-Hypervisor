@@ -6,12 +6,12 @@
  * https://opensource.org/licenses/BSD-3-Clause.
  */
 
-#include "hf/arch/vm/interrupts.h"
+#include "pg/arch/vm/interrupts.h"
 
-#include "hf/mm.h"
-#include "hf/std.h"
+#include "pg/mm.h"
+#include "pg/std.h"
 
-#include "vmapi/hf/call.h"
+#include "vmapi/pg/call.h"
 
 #include "test/hftest.h"
 #include "test/vmapi/exception_handler.h"

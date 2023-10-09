@@ -8,12 +8,12 @@
 
 #include <stdalign.h>
 
-#include "hf/arch/vm/power_mgmt.h"
+#include "pg/arch/vm/power_mgmt.h"
 
-#include "hf/mm.h"
-#include "hf/spinlock.h"
+#include "pg/mm.h"
+#include "pg/spinlock.h"
 
-#include "vmapi/hf/call.h"
+#include "vmapi/pg/call.h"
 
 #include "test/hftest.h"
 #include "test/vmapi/ffa.h"
@@ -68,7 +68,7 @@ TEST(faults, spurious_due_to_configure)
 	sl_lock(&s.lock);
 
 	/* Configure the VM's buffers. */
-	EXPECT_EQ(ffa_rxtx_map((hf_ipaddr_t)&tx[0], (hf_ipaddr_t)&rx[0]).func,
+	EXPECT_EQ(ffa_rxtx_map((pg_ipaddr_t)&tx[0], (pg_ipaddr_t)&rx[0]).func,
 		  FFA_SUCCESS_32);
 
 	/* Tell other CPU to stop and wait for it. */

@@ -8,7 +8,7 @@
 
 #include "sysregs.h"
 
-#include "hf/arch/vm/interrupts.h"
+#include "pg/arch/vm/interrupts.h"
 
 #include "primary_with_secondary.h"
 #include "test/vmapi/exception_handler.h"
@@ -24,7 +24,7 @@ SET_UP(sysregs)
  */
 TEST(sysregs, lor_exception)
 {
-	EXPECT_EQ(hf_vm_get_id(), HF_PRIMARY_VM_ID);
+	EXPECT_EQ(pg_vm_get_id(), PG_PRIMARY_VM_ID);
 	TRY_READ(MSR_LORC_EL1);
 
 	EXPECT_EQ(exception_handler_get_num(), 1);

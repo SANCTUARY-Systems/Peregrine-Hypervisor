@@ -6,12 +6,12 @@
  * https://opensource.org/licenses/BSD-3-Clause.
  */
 
-#include "hf/layout.h"
-#include "hf/plat/boot_flow.h"
+#include "pg/layout.h"
+#include "pg/plat/boot_flow.h"
 
 /**
- * FDT was compiled into Hafnium. Return physical address of the `.plat.fdt`
- * section of Hafnium image.
+ * FDT was compiled into Peregrine. Return physical address of the `.plat.fdt`
+ * section of Peregrine image.
  */
 paddr_t plat_boot_flow_get_fdt_addr(void)
 {
@@ -29,7 +29,7 @@ uintreg_t plat_boot_flow_get_kernel_arg(void)
 /**
  * Return the memory range of the RAM disk. This can be either:
  * (a) the range of the '.plat.initrd' section, if it was compiled into the
- *     Hafnium image (INITRD_ADDR and INITRD_SIZE are zero), or
+ *     Peregrine image (INITRD_ADDR and INITRD_SIZE are zero), or
  * (b) a fixed address range known at build time (INITRD_ADDR and INITRD_SIZE
  *     are not zero).
  */

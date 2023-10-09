@@ -6,12 +6,12 @@
  * https://opensource.org/licenses/BSD-3-Clause.
  */
 
-#include "hf/arch/vm/power_mgmt.h"
+#include "pg/arch/vm/power_mgmt.h"
 
-#include "hf/boot_params.h"
-#include "hf/fdt_handler.h"
-#include "hf/memiter.h"
-#include "hf/std.h"
+#include "pg/boot_params.h"
+#include "pg/fdt_handler.h"
+#include "pg/memiter.h"
+#include "pg/std.h"
 
 #include "hftest_common.h"
 #include "test/hftest.h"

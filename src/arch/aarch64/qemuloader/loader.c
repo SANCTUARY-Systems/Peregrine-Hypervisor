@@ -10,12 +10,12 @@
 #include <stdint.h>
 #include <stdnoreturn.h>
 
-#include "hf/arch/std.h"
+#include "pg/arch/std.h"
 
-#include "hf/addr.h"
-#include "hf/dlog.h"
-#include "hf/layout.h"
-#include "hf/panic.h"
+#include "pg/addr.h"
+#include "pg/dlog.h"
+#include "pg/layout.h"
+#include "pg/panic.h"
 
 #include "fwcfg.h"
 #include "libfdt.h"
@@ -96,7 +96,7 @@ noreturn void kmain(struct fdt_header *fdt)
 	uintptr_t initrd_start = align_up(pa_addr(image_end), LINUX_ALIGNMENT);
 	uint32_t initrd_size = fw_cfg_read_uint32(FW_CFG_INITRD_SIZE);
 
-	dlog_info("Initrd start %#x, size %#x\n", initrd_start, initrd_size);
+	dlog_debug("Initrd start %#x, size %#x\n", initrd_start, initrd_size);
 	fw_cfg_read_bytes(FW_CFG_INITRD_DATA, initrd_start, initrd_size);
 
 	/*
@@ -106,13 +106,13 @@ noreturn void kmain(struct fdt_header *fdt)
 	kernel_start = align_up(initrd_start + initrd_size, LINUX_ALIGNMENT) +
 		       LINUX_OFFSET;
 	kernel_size = fw_cfg_read_uint32(FW_CFG_KERNEL_SIZE);
-	dlog_info("Kernel start %#x, size %#x\n", kernel_start, kernel_size);
+	dlog_debug("Kernel start %#x, size %#x\n", kernel_start, kernel_size);
 	fw_cfg_read_bytes(FW_CFG_KERNEL_DATA, kernel_start, kernel_size);
 
 	/* Update FDT to point to initrd. */
 	if (initrd_size > 0) {
 		if (update_fdt(fdt, initrd_start, initrd_size)) {
-			dlog_info("Updated FDT with initrd.\n");
+			dlog_debug("Updated FDT with initrd.\n");
 		} else {
 			panic("Failed to update FDT.");
 		}

@@ -6,7 +6,7 @@
  * https://opensource.org/licenses/BSD-3-Clause.
  */
 
-#include "hf/arch/vm/mm.h"
+#include "pg/arch/vm/mm.h"
 
 #include "test/hftest.h"
 

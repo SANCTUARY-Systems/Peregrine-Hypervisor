@@ -8,8 +8,8 @@
 
 #include <stdint.h>
 
-#include "vmapi/hf/call.h"
-#include "vmapi/hf/ffa.h"
+#include "vmapi/pg/call.h"
+#include "vmapi/pg/ffa.h"
 
 #include "smc.h"
 #include "test/hftest.h"
@@ -43,10 +43,10 @@ static struct ffa_value hvc(uint32_t func, uint64_t arg0, uint64_t arg1,
 				  .arg7 = r7};
 }
 
-TEST(smccc, hf_debug_log_smc_zero_or_unchanged)
+TEST(smccc, pg_debug_log_smc_zero_or_unchanged)
 {
 	struct ffa_value smc_res =
-		smc_forward(HF_DEBUG_LOG, '\n', 0x2222222222222222,
+		smc_forward(PG_DEBUG_LOG, '\n', 0x2222222222222222,
 			    0x3333333333333333, 0x4444444444444444,
 			    0x5555555555555555, 0x6666666666666666, 0x77777777);
 
@@ -60,10 +60,10 @@ TEST(smccc, hf_debug_log_smc_zero_or_unchanged)
 	EXPECT_EQ(smc_res.arg7, UINT64_C(0x77777777));
 }
 
-TEST(smccc, hf_debug_log_hvc_zero_or_unchanged)
+TEST(smccc, pg_debug_log_hvc_zero_or_unchanged)
 {
 	struct ffa_value smc_res =
-		hvc(HF_DEBUG_LOG, '\n', 0x2222222222222222, 0x3333333333333333,
+		hvc(PG_DEBUG_LOG, '\n', 0x2222222222222222, 0x3333333333333333,
 		    0x4444444444444444, 0x5555555555555555, 0x6666666666666666,
 		    0x77777777);
 

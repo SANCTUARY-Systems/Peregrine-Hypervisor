@@ -19,12 +19,11 @@ hypervisor("aarch64_test") {
   testonly = true
 
   sources = [
-    "tee_test.c",
   ]
 
   deps = [
     "//src:vm",
-    "//src/arch/${plat_arch}/hypervisor:other_world",
+    "//src/arch/${plat_arch}/hypervisor:vm",
     "//test/hftest:hftest_hypervisor",
   ]
 }

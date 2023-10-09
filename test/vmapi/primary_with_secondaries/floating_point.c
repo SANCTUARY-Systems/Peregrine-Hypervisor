@@ -6,12 +6,12 @@
  * https://opensource.org/licenses/BSD-3-Clause.
  */
 
-#include "hf/arch/std.h"
-#include "hf/arch/vm/registers.h"
+#include "pg/arch/std.h"
+#include "pg/arch/vm/registers.h"
 
-#include "hf/ffa.h"
+#include "pg/ffa.h"
 
-#include "vmapi/hf/call.h"
+#include "vmapi/pg/call.h"
 
 #include "../msr.h"
 #include "primary_with_secondary.h"

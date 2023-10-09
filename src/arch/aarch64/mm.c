@@ -6,13 +6,13 @@
  * https://opensource.org/licenses/BSD-3-Clause.
  */
 
-#include "hf/mm.h"
+#include "pg/mm.h"
 
-#include "hf/arch/barriers.h"
-#include "hf/arch/cpu.h"
-#include "hf/arch/mmu.h"
+#include "pg/arch/barriers.h"
+#include "pg/arch/cpu.h"
+#include "pg/arch/mmu.h"
 
-#include "hf/dlog.h"
+#include "pg/dlog.h"
 
 #include "msr.h"
 #include "sysregs.h"
@@ -417,19 +417,6 @@ uint64_t arch_mm_mode_to_stage1_attrs(uint32_t mode)
 
 	attrs |= STAGE1_AF | STAGE1_SH(INNER_SHAREABLE);
 
-#if SECURE_WORLD == 1
-
-	/**
-	 * Define the non-secure bit.
-	 * At NS-EL2 the Stage-1 MMU NS bit is RES0. At S-EL1/2, this bit
-	 * defines the Stage-1 security attribute for the block or page.
-	 */
-	if (mode & MM_MODE_NS) {
-		attrs |= STAGE1_NS;
-	}
-
-#endif
-
 	/* Define the execute bits. */
 	if (!(mode & MM_MODE_X)) {
 		attrs |= STAGE1_XN;
@@ -642,7 +629,7 @@ bool arch_mm_init(paddr_t table)
 		return false;
 	}
 
-	dlog_info("Supported bits in physical address: %d\n", pa_bits);
+	dlog_debug("Supported bits in physical address: %d\n", pa_bits);
 
 	/*
 	 * Determine sl0, starting level of the page table, based on the number
@@ -676,7 +663,7 @@ bool arch_mm_init(paddr_t table)
 	}
 	mm_s2_root_table_count = 1 << extend_bits;
 
-	dlog_info(
+	dlog_debug(
 		"Stage 2 has %d page table levels with %d pages at the root.\n",
 		mm_s2_max_level + 1, mm_s2_root_table_count);
 
@@ -739,7 +726,7 @@ bool arch_mm_init(paddr_t table)
 	 * The bit is set once during boot and is not expected to change for the
 	 * boot cycle. When VHE is enabled, currently, only the lower virtual
 	 * address range (ttbr0_el2) is used and the upper address
-	 * range(ttbr0_el1) is disabled. This keeps hafnium simple and
+	 * range(ttbr0_el1) is disabled. This keeps Peregrine simple and
 	 * consistent with its behavior when VHE is not enabled. When VHE is
 	 * not enabled, hcr_el2 will default to 0 and will be set up during vCPU
 	 * initialization.
@@ -779,13 +766,23 @@ bool arch_mm_init(paddr_t table)
 			(25 << 0) | /* T0SZ, input address is 2^39 bytes. */
 			0;
 	}
+	struct arch_mm_config* cp;
+	cp = &arch_mm_config;
+	dlog_debug("ttbr0_el2: 0x%#x\n", cp->ttbr0_el2);
+	dlog_debug("vtcr_el2: 0x%#x\n", cp->vtcr_el2);
+	dlog_debug("mair_el2: 0x%#x\n", cp->mair_el2);
+	dlog_debug("tcr_el2: 0x%#x\n", cp->tcr_el2);
+	dlog_debug("sctlr_el2: 0x%#x\n", cp->sctlr_el2);
+	dlog_debug("vstcr_el2: 0x%#x\n", cp->vstcr_el2);
+	dlog_debug("hcr_el2: 0x%#x\n", cp->hcr_el2);
+
 	return true;
 }
 
 /**
  * Return the arch specific mm mode for send/recv pages of given VM ID.
  */
-uint32_t arch_mm_extra_attributes_from_vm(ffa_vm_id_t id)
+uint32_t arch_mm_extra_attributes_from_vm(uint16_t id)
 {
-	return (id == HF_HYPERVISOR_VM_ID) ? MM_MODE_NS : 0;
+	return (id == PG_HYPERVISOR_VM_ID) ? MM_MODE_NS : 0;
 }

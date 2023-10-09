@@ -8,9 +8,9 @@
 
 #include "debug_el1.h"
 
-#include "hf/check.h"
-#include "hf/dlog.h"
-#include "hf/types.h"
+#include "pg/check.h"
+#include "pg/dlog.h"
+#include "pg/types.h"
 
 #include "msr.h"
 #include "sysregs.h"
@@ -133,15 +133,15 @@ bool debug_el1_is_register_access(uintreg_t esr)
  * Processes an access (msr, mrs) to an EL1 debug register.
  * Returns true if the access was allowed and performed, false otherwise.
  */
-bool debug_el1_process_access(struct vcpu *vcpu, ffa_vm_id_t vm_id,
+bool debug_el1_process_access(struct vcpu *vcpu, uint16_t vm_id,
 			      uintreg_t esr)
 {
 	/*
 	 * For now, debug registers are not supported by secondary VMs.
 	 * Disallow accesses to them.
 	 */
-	if (vm_id != HF_PRIMARY_VM_ID) {
-		return false;
+	if (vm_id != PG_PRIMARY_VM_ID) {
+		//return false; //TODO: Handle access to system registers by multiple VMs properly
 	}
 
 	uintreg_t sys_register = GET_ISS_SYSREG(esr);

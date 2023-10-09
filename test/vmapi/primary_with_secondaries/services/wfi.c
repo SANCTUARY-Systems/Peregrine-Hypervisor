@@ -6,12 +6,12 @@
  * https://opensource.org/licenses/BSD-3-Clause.
  */
 
-#include "hf/arch/irq.h"
-#include "hf/arch/vm/interrupts.h"
+#include "pg/arch/irq.h"
+#include "pg/arch/vm/interrupts.h"
 
-#include "hf/dlog.h"
+#include "pg/dlog.h"
 
-#include "vmapi/hf/call.h"
+#include "vmapi/pg/call.h"
 
 #include "primary_with_secondary.h"
 #include "test/hftest.h"
@@ -23,7 +23,7 @@
 
 static void irq(void)
 {
-	uint32_t interrupt_id = hf_interrupt_get();
+	uint32_t interrupt_id = pg_interrupt_get();
 	FAIL("Unexpected secondary IRQ %d from current", interrupt_id);
 }
 
@@ -34,7 +34,7 @@ TEST_SERVICE(wfi)
 
 	exception_setup(irq, NULL);
 	arch_irq_disable();
-	hf_interrupt_enable(EXTERNAL_INTERRUPT_ID_A, true, INTERRUPT_TYPE_IRQ);
+	pg_interrupt_enable(EXTERNAL_INTERRUPT_ID_A, true, INTERRUPT_TYPE_IRQ);
 
 	for (i = 0; i < 10; ++i) {
 		interrupt_wait();
@@ -43,5 +43,5 @@ TEST_SERVICE(wfi)
 	memcpy_s(SERVICE_SEND_BUFFER(), FFA_MSG_PAYLOAD_MAX, message,
 		 sizeof(message));
 
-	ffa_msg_send(hf_vm_get_id(), HF_PRIMARY_VM_ID, sizeof(message), 0);
+	ffa_msg_send(pg_vm_get_id(), PG_PRIMARY_VM_ID, sizeof(message), 0);
 }

@@ -6,11 +6,11 @@
  * https://opensource.org/licenses/BSD-3-Clause.
  */
 
-#include "hf/layout.h"
+#include "pg/layout.h"
 
 paddr_t layout_text_begin(void)
 {
-	return pa_init(0);
+	return pa_init(1);
 }
 
 paddr_t layout_text_end(void)

@@ -15,7 +15,7 @@ import sys
 from shutil import copyfileobj
 import os
 
-HF_PAGE_SIZE = 0x1000
+PG_PAGE_SIZE = 0x1000
 HEADER_ELEMENT_BYTES = 4 # bytes
 HEADER_LEN = 6
 
@@ -24,9 +24,9 @@ def split_dtb_bin(i : str):
     return i.split(MANIFEST_IMAGE_SPLITTER)
 
 def align_to_page(n):
-    return HF_PAGE_SIZE * \
-          (round(n / HF_PAGE_SIZE) + \
-           (1 if n % HF_PAGE_SIZE else 0))
+    return PG_PAGE_SIZE * \
+          (round(n / PG_PAGE_SIZE) + \
+           (1 if n % PG_PAGE_SIZE else 0))
 
 def to_bytes(value):
     return int(value).to_bytes(4, 'little')

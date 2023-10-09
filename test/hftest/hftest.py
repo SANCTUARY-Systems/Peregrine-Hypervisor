@@ -35,20 +35,20 @@ HFTEST_LOG_FINISHED = "FINISHED"
 HFTEST_CTRL_GET_COMMAND_LINE = "[hftest_ctrl:get_command_line]"
 HFTEST_CTRL_FINISHED = "[hftest_ctrl:finished]"
 
-HF_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(
+PG_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__))))
-DTC_SCRIPT = os.path.join(HF_ROOT, "build", "image", "dtc.py")
+DTC_SCRIPT = os.path.join(PG_ROOT, "build", "image", "dtc.py")
 FVP_BINARY = os.path.join(
-    os.path.dirname(HF_ROOT), "fvp", "Base_RevC_AEMv8A_pkg", "models",
+    os.path.dirname(PG_ROOT), "fvp", "Base_RevC_AEMv8A_pkg", "models",
     "Linux64_GCC-6.4", "FVP_Base_RevC-2xAEMv8A")
-HF_PREBUILTS = os.path.join(HF_ROOT, "prebuilts")
+PG_PREBUILTS = os.path.join(PG_ROOT, "prebuilts")
 FVP_PREBUILTS_TFA_TRUSTY_ROOT = os.path.join(
-    HF_PREBUILTS, "linux-aarch64", "trusted-firmware-a-trusty", "fvp")
+    PG_PREBUILTS, "linux-aarch64", "trusted-firmware-a-trusty", "fvp")
 FVP_PREBUILT_DTS = os.path.join(
     FVP_PREBUILTS_TFA_TRUSTY_ROOT, "fvp-base-gicv3-psci-1t.dts")
 
 FVP_PREBUILT_TFA_ROOT = os.path.join(
-    HF_PREBUILTS, "linux-aarch64", "trusted-firmware-a", "fvp")
+    PG_PREBUILTS, "linux-aarch64", "trusted-firmware-a", "fvp")
 
 VM_NODE_REGEX = "vm[1-9]"
 
@@ -232,7 +232,7 @@ class QemuDriver(Driver):
 
         if self.tfa:
             bl1_path = os.path.join(
-                HF_PREBUILTS, "linux-aarch64", "trusted-firmware-a-trusty",
+                PG_PREBUILTS, "linux-aarch64", "trusted-firmware-a-trusty",
                 "qemu", "bl1.bin")
             exec_args += ["-bios",
                 os.path.abspath(bl1_path),
@@ -367,6 +367,8 @@ class FvpDriver(Driver, ABC):
             f"cluster0.cpu0={self.FVP_PREBUILT_BL31}@{self.CPU_START_ADDRESS}",
             "-C", "bp.ve_sysregs.mmbSiteDefault=0",
             "-C", "bp.ve_sysregs.exit_on_shutdown=1",
+            "-C", "cluster0.has_arm_v8-1=1",
+            "-C", "cluster1.has_arm_v8-1=1",
         ]
 
         if uart0_log_path and uart1_log_path:
@@ -477,7 +479,7 @@ class FvpDriverSPMC(FvpDriver):
     Driver which runs tests in Arm FVP emulator, with hafnium as SPMC
     """
     FVP_PREBUILT_SECURE_DTS = os.path.join(
-        HF_ROOT, "test", "vmapi", "fvp-base-spmc.dts")
+        PG_ROOT, "test", "vmapi", "fvp-base-spmc.dts")
     HFTEST_CMD_FILE =  os.path.join("/tmp/", "hftest_cmds")
 
     def __init__(self, args):
@@ -560,8 +562,9 @@ class FvpDriverBothWorlds(FvpDriverHypervisor, FvpDriverSPMC):
         self.compile_dt(run_state, dt)
 
         # Create file to capture model stdout and stderr
-        fvp_out = args.artifacts.create_file(args.global_run_name, ".model.log")
-        self.fvp_out_f = open(fvp_out, "a")
+        self.fvp_out_filename = args.artifacts.create_file(
+            args.global_run_name, ".model.log")
+        self.fvp_out_f = open(self.fvp_out_filename, "a")
 
         # Generate the FVP model arguments
         self.fvp_args = self.gen_fvp_args(None, None, dt)
@@ -610,15 +613,31 @@ class FvpDriverBothWorlds(FvpDriverHypervisor, FvpDriverSPMC):
         # APIs. Therefore, removing from list of command arguments:
         return fvp_args[3:]
 
+    def get_telnet_port(self):
+        # Get telnet port by parsing log file, default to 5000
+        self.fvp_out_f.flush()
+        log = read_file(self.fvp_out_filename)
+        port = re.match(
+            'terminal_0: Listening for serial connection on port ([0-9]+)', log)
+        return port.group(1) if port else 5000
+
     def process_start(self):
         self.process = subprocess.Popen(self.fvp_args,
                                         stdout = self.fvp_out_f,
                                         stderr = self.fvp_out_f)
         # Sleep 1 sec so connect to model via telnet doesn't fail
         time.sleep(1.0)
+        # Start telnet session
+        try:
+            self.comm = Telnet("localhost", self.get_telnet_port())
+        except ConnectionError as e:
+            self.finish()
+            raise e
+
 
     def process_terminate(self):
         """ Terminate fvp model's process, and reset internal field """
+        self.comm.close() # Close telnet connection
         self.process.terminate()
         # To give the system time to terminate the process
         time.sleep(1.0)
@@ -634,25 +653,20 @@ class FvpDriverBothWorlds(FvpDriverHypervisor, FvpDriverSPMC):
 
         test_log = f"{' '.join(self.fvp_args)}\n"
 
-        try:
-            with Telnet("localhost", 5000) as comm:
-                # Obtaining HFTEST_CTRL_GET_COMMAND_LINE in logs should be quick
-                test_log += comm.read_until(
-                    HFTEST_CTRL_GET_COMMAND_LINE.encode("ascii"),
-                    timeout=5.0).decode("ascii")
+        # Obtaining HFTEST_CTRL_GET_COMMAND_LINE in logs should be quick
+        test_log += self.comm.read_until(
+            HFTEST_CTRL_GET_COMMAND_LINE.encode("ascii"),
+            timeout=5.0).decode("ascii")
 
-                if HFTEST_CTRL_GET_COMMAND_LINE in test_log:
-                    # Send command to instruct partition to execute test
-                    comm.write(f"{test_args}\n".encode("ascii"))
+        if HFTEST_CTRL_GET_COMMAND_LINE in test_log:
+            # Send self.command to instruct partition to execute test
+            self.comm.write(f"{test_args}\n".encode("ascii"))
 
-                    timeout = 80.0 if is_long_running else 10.0
-                    test_log += comm.read_until(HFTEST_CTRL_FINISHED.encode("ascii"),
-                                                timeout=timeout).decode("ascii")
-                else:
-                    print("VM not ready to fetch test command")
-        except ConnectionError as e:
-            self.finish()
-            raise e
+            timeout = 80.0 if is_long_running else 10.0
+            test_log += self.comm.read_until(HFTEST_CTRL_FINISHED.encode("ascii"),
+                                        timeout=timeout).decode("ascii")
+        else:
+            print("VM not ready to fetch test command")
 
         # Check wether test went well:
         if HFTEST_CTRL_FINISHED not in test_log:
@@ -751,7 +765,7 @@ class TestRunner:
         self.suite_re = re.compile(suite_regex or ".*")
         self.test_re = re.compile(test_regex or ".*")
 
-    def extract_hftest_lines(self, raw):
+    def extract_pgtest_lines(self, raw):
         """Extract hftest-specific lines from a raw output from an invocation
         of the test platform."""
         lines = []
@@ -781,9 +795,9 @@ class TestRunner:
         """Invoke the test platform and request a JSON of available test and
         test suites."""
         out = self.driver.run("json", "json", self.force_long_running)
-        hf_out = "\n".join(self.extract_hftest_lines(out))
+        pg_out = "\n".join(self.extract_pgtest_lines(out))
         try:
-            return json.loads(hf_out)
+            return json.loads(pg_out)
         except ValueError as e:
             print(out)
             raise e
@@ -865,7 +879,7 @@ class TestRunner:
         out = self.driver.run(
             log_name, "run {} {}".format(suite["name"], test["name"]),
             test["is_long_running"] or self.force_long_running)
-        hftest_out = self.extract_hftest_lines(out)
+        hftest_out = self.extract_pgtest_lines(out)
         elapsed_time = time.perf_counter() - start_time
 
         test_xml.set("time", str(elapsed_time))

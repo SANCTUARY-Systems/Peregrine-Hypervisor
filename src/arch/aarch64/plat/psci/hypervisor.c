@@ -6,8 +6,8 @@
  * https://opensource.org/licenses/BSD-3-Clause.
  */
 
-#include "hf/cpu.h"
-#include "hf/dlog.h"
+#include "pg/cpu.h"
+#include "pg/dlog.h"
 
 #include "psci.h"
 
@@ -39,7 +39,7 @@ void plat_psci_init(void)
 	case PSCI_VERSION_1_0:
 	case PSCI_VERSION_1_1:
 		/* Supported EL3 PSCI version. */
-		dlog_info("Found PSCI version: %#x\n", el3_psci_version);
+		dlog_debug("Found PSCI version: %#x\n", el3_psci_version);
 		break;
 
 	default:

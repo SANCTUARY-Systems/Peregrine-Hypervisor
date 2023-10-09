@@ -6,20 +6,20 @@
  * https://opensource.org/licenses/BSD-3-Clause.
  */
 
-#include "hf/mm.h"
-
+#include "pg/mm.h"
+#include "pg/pma.h"
 #include <stdatomic.h>
 #include <stdint.h>
 
-#include "hf/check.h"
-#include "hf/dlog.h"
-#include "hf/layout.h"
-#include "hf/plat/console.h"
-#include "hf/static_assert.h"
+#include "pg/check.h"
+#include "pg/dlog.h"
+#include "pg/layout.h"
+#include "pg/plat/console.h"
+#include "pg/static_assert.h"
 
 /**
  * This file has functions for managing the level 1 and 2 page tables used by
- * Hafnium. There is a level 1 mapping used by Hafnium itself to access memory,
+ * Peregrine. There is a level 1 mapping used by Peregrine itself to access memory,
  * and then a level 2 mapping per VM. The design assumes that all page tables
  * contain only 1-1 mappings, aligned on the block boundaries.
  */
@@ -60,7 +60,7 @@ static struct mm_page_table *mm_page_table_from_pa(paddr_t pa)
 /**
  * Rounds an address down to a page boundary.
  */
-static ptable_addr_t mm_round_down_to_page(ptable_addr_t addr)
+ptable_addr_t mm_round_down_to_page(ptable_addr_t addr)
 {
 	return addr & ~((ptable_addr_t)(PAGE_SIZE - 1));
 }
@@ -68,7 +68,7 @@ static ptable_addr_t mm_round_down_to_page(ptable_addr_t addr)
 /**
  * Rounds an address up to a page boundary.
  */
-static ptable_addr_t mm_round_up_to_page(ptable_addr_t addr)
+ptable_addr_t mm_round_up_to_page(ptable_addr_t addr)
 {
 	return mm_round_down_to_page(addr + PAGE_SIZE - 1);
 }
@@ -77,7 +77,7 @@ static ptable_addr_t mm_round_up_to_page(ptable_addr_t addr)
  * Calculates the size of the address space represented by a page table entry at
  * the given level.
  */
-static size_t mm_entry_size(uint8_t level)
+size_t mm_entry_size(uint8_t level)
 {
 	return UINT64_C(1) << (PAGE_BITS + level * PAGE_LEVEL_BITS);
 }
@@ -96,11 +96,12 @@ static ptable_addr_t mm_start_of_next_block(ptable_addr_t addr,
  * Gets the physical address of the start of the next block of the given size.
  * The size must be a power of two.
  */
+/*
 static paddr_t mm_pa_start_of_next_block(paddr_t pa, size_t block_size)
 {
 	return pa_init((pa_addr(pa) + block_size) & ~(block_size - 1));
 }
-
+*/
 /**
  * For a given address, calculates the maximum (plus one) address that can be
  * represented by the same table at the given level.
@@ -170,6 +171,7 @@ static void mm_invalidate_tlb(ptable_addr_t begin, ptable_addr_t end, int flags)
  * Frees all page-table-related memory associated with the given pte at the
  * given level, including any subtables recursively.
  */
+// NOLINTNEXTLINE(misc-no-recursion)
 static void mm_free_page_pte(pte_t pte, uint8_t level, struct mpool *ppool)
 {
 	struct mm_page_table *table;
@@ -347,6 +349,7 @@ static struct mm_page_table *mm_populate_table_pte(ptable_addr_t begin,
  * levels, but the recursion is bound by the maximum number of levels in a page
  * table.
  */
+// NOLINTNEXTLINE(misc-no-recursion)
 static bool mm_map_level(ptable_addr_t begin, ptable_addr_t end, paddr_t pa,
 			 uint64_t attrs, struct mm_page_table *table,
 			 uint8_t level, int flags, struct mpool *ppool)
@@ -375,7 +378,8 @@ static bool mm_map_level(ptable_addr_t begin, ptable_addr_t end, paddr_t pa,
 			 */
 		} else if ((end - begin) >= entry_size &&
 			   (unmap || arch_mm_is_block_allowed(level)) &&
-			   (begin & (entry_size - 1)) == 0) {
+			   (begin & (entry_size - 1)) == 0 && 
+			   (pa_addr(pa) & (entry_size - 1)) == 0) {
 			/*
 			 * If the entire entry is within the region we want to
 			 * map, map/unmap the whole entry.
@@ -409,8 +413,9 @@ static bool mm_map_level(ptable_addr_t begin, ptable_addr_t end, paddr_t pa,
 			}
 		}
 
+		/* without 1-to-1 mapping, pa is not required to be aligned, so calc offset */
+		pa = pa_add(pa, mm_start_of_next_block(begin, entry_size) - begin);
 		begin = mm_start_of_next_block(begin, entry_size);
-		pa = mm_pa_start_of_next_block(pa, entry_size);
 		pte++;
 	}
 
@@ -423,7 +428,7 @@ static bool mm_map_level(ptable_addr_t begin, ptable_addr_t end, paddr_t pa,
  * MM_FLAG_UNMAP is set, unmap the given range instead.
  */
 static bool mm_map_root(struct mm_ptable *t, ptable_addr_t begin,
-			ptable_addr_t end, uint64_t attrs, uint8_t root_level,
+			ptable_addr_t end, paddr_t pa, uint64_t attrs, uint8_t root_level,
 			int flags, struct mpool *ppool)
 {
 	size_t root_table_size = mm_entry_size(root_level);
@@ -431,10 +436,11 @@ static bool mm_map_root(struct mm_ptable *t, ptable_addr_t begin,
 		&mm_page_table_from_pa(t->root)[mm_index(begin, root_level)];
 
 	while (begin < end) {
-		if (!mm_map_level(begin, end, pa_init(begin), attrs, table,
+		if (!mm_map_level(begin, end, pa, attrs, table,
 				  root_level - 1, flags, ppool)) {
 			return false;
 		}
+		pa = pa_add(pa, mm_start_of_next_block(begin, root_table_size) - begin);
 		begin = mm_start_of_next_block(begin, root_table_size);
 		table++;
 	}
@@ -447,15 +453,33 @@ static bool mm_map_root(struct mm_ptable *t, ptable_addr_t begin,
  * or not mapped into the address space with the architecture-agnostic mode
  * provided. Only commits the change if MM_FLAG_COMMIT is set.
  */
-static bool mm_ptable_identity_map(struct mm_ptable *t, paddr_t pa_begin,
-				   paddr_t pa_end, uint64_t attrs, int flags,
+static bool mm_ptable_map(struct mm_ptable *t, paddr_t pa_begin,
+				   paddr_t pa_end, ipaddr_t ipa_begin, uint64_t attrs, int flags,
 				   struct mpool *ppool)
 {
+	ptable_addr_t begin;
+	ptable_addr_t end;
+	
 	uint8_t root_level = mm_max_level(flags) + 1;
 	ptable_addr_t ptable_end = mm_ptable_addr_space_end(flags);
-	ptable_addr_t end = mm_round_up_to_page(pa_addr(pa_end));
-	ptable_addr_t begin = pa_addr(arch_mm_clear_pa(pa_begin));
 
+	/* 
+	 * if an ipa value is given, map the physical address range to an ipa region
+	 * else we do a 1 to 1 mapping of ipa to pa.
+	 */
+
+	
+	/*
+	 * calculate the size by using the provided intermediate physical address range
+	 * For Stage 1 mappings, ipa value is set identical to pa values for a 1-to-1 mapping.
+	 * Round addresses to pages to map complete pages. (round down begin, round up end).
+	 */
+	 
+	pa_begin = arch_mm_clear_pa(pa_begin);
+	begin = pa_addr(arch_mm_clear_pa(pa_from_ipa(ipa_begin)));
+	end = mm_round_up_to_page(ipa_addr(ipa_begin) + (pa_addr(pa_end) - pa_addr(pa_begin)));
+	
+	
 	/*
 	 * Assert condition to communicate the API constraint of mm_max_level(),
 	 * that isn't encoded in the types, to the static analyzer.
@@ -466,8 +490,8 @@ static bool mm_ptable_identity_map(struct mm_ptable *t, paddr_t pa_begin,
 	if (end > ptable_end) {
 		end = ptable_end;
 	}
-
-	if (!mm_map_root(t, begin, end, attrs, root_level, flags, ppool)) {
+	/* this function uses the range as virtual and pa as physical address */
+	if (!mm_map_root(t, begin, end, pa_begin, attrs, root_level, flags, ppool)) {
 		return false;
 	}
 
@@ -490,17 +514,17 @@ static bool mm_ptable_identity_map(struct mm_ptable *t, paddr_t pa_begin,
  * In particular, multiple calls to this function will result in the
  * corresponding calls to commit the changes to succeed.
  */
-static bool mm_ptable_identity_prepare(struct mm_ptable *t, paddr_t pa_begin,
-				       paddr_t pa_end, uint64_t attrs,
+static bool mm_ptable_prepare(struct mm_ptable *t, paddr_t pa_begin,  
+				       paddr_t pa_end, ipaddr_t ipa_begin, uint64_t attrs,
 				       int flags, struct mpool *ppool)
 {
 	flags &= ~MM_FLAG_COMMIT;
-	return mm_ptable_identity_map(t, pa_begin, pa_end, attrs, flags, ppool);
+	return mm_ptable_map(t, pa_begin, pa_end, ipa_begin, attrs, flags, ppool);
 }
 
 /**
  * Commits the given address mapping to the page table assuming the operation
- * cannot fail. `mm_ptable_identity_prepare` must used correctly before this to
+ * cannot fail. `mm_ptable_prepare` must used correctly before this to
  * ensure this condition.
  *
  * Without the table being properly prepared, the commit may only partially
@@ -512,11 +536,11 @@ static bool mm_ptable_identity_prepare(struct mm_ptable *t, paddr_t pa_begin,
  *
  * TODO: remove ppool argument to be sure no changes are made.
  */
-static void mm_ptable_identity_commit(struct mm_ptable *t, paddr_t pa_begin,
-				      paddr_t pa_end, uint64_t attrs, int flags,
+static void mm_ptable_commit(struct mm_ptable *t, paddr_t pa_begin,
+				      paddr_t pa_end, ipaddr_t ipa_begin, uint64_t attrs, int flags,
 				      struct mpool *ppool)
 {
-	CHECK(mm_ptable_identity_map(t, pa_begin, pa_end, attrs,
+	CHECK(mm_ptable_map(t, pa_begin, pa_end, ipa_begin, attrs,
 				     flags | MM_FLAG_COMMIT, ppool));
 }
 
@@ -530,16 +554,16 @@ static void mm_ptable_identity_commit(struct mm_ptable *t, paddr_t pa_begin,
  * table may be left with extra internal tables but the address space is
  * unchanged.
  */
-static bool mm_ptable_identity_update(struct mm_ptable *t, paddr_t pa_begin,
-				      paddr_t pa_end, uint64_t attrs, int flags,
+static bool mm_ptable_update(struct mm_ptable *t, paddr_t pa_begin,
+				      paddr_t pa_end, ipaddr_t ipa_begin, uint64_t attrs, int flags,
 				      struct mpool *ppool)
 {
-	if (!mm_ptable_identity_prepare(t, pa_begin, pa_end, attrs, flags,
+	if (!mm_ptable_prepare(t, pa_begin, pa_end, ipa_begin, attrs, flags,
 					ppool)) {
 		return false;
 	}
 
-	mm_ptable_identity_commit(t, pa_begin, pa_end, attrs, flags, ppool);
+	mm_ptable_commit(t, pa_begin, pa_end, ipa_begin, attrs, flags, ppool);
 
 	return true;
 }
@@ -548,6 +572,7 @@ static bool mm_ptable_identity_update(struct mm_ptable *t, paddr_t pa_begin,
  * Writes the given table to the debug log, calling itself recursively to
  * write sub-tables.
  */
+// NOLINTNEXTLINE(misc-no-recursion)
 static void mm_dump_table_recursive(struct mm_page_table *table, uint8_t level,
 				    int max_level)
 {
@@ -622,6 +647,7 @@ static pte_t mm_merge_table_pte(pte_t table_pte, uint8_t level)
  * Defragments the given PTE by recursively replacing any tables with blocks or
  * absent entries where possible.
  */
+// NOLINTNEXTLINE(misc-no-recursion)
 static void mm_ptable_defrag_entry(ptable_addr_t base_addr, pte_t *entry,
 				   uint8_t level, int flags,
 				   struct mpool *ppool)
@@ -636,6 +662,8 @@ static void mm_ptable_defrag_entry(ptable_addr_t base_addr, pte_t *entry,
 	if (!arch_mm_pte_is_table(*entry, level)) {
 		return;
 	}
+
+	CHECK(level > 0);
 
 	table = mm_page_table_from_pa(arch_mm_table_from_pte(*entry, level));
 
@@ -739,6 +767,7 @@ static void mm_ptable_defrag(struct mm_ptable *t, int flags,
  *
  * Returns true if the whole range has the same attributes and false otherwise.
  */
+// NOLINTNEXTLINE(misc-no-recursion)
 static bool mm_ptable_get_attrs_level(struct mm_page_table *table,
 				      ptable_addr_t begin, ptable_addr_t end,
 				      uint8_t level, bool got_attrs,
@@ -779,6 +808,36 @@ static bool mm_ptable_get_attrs_level(struct mm_page_table *table,
 
 	/* The entry is a valid block. */
 	return got_attrs;
+}
+
+/**
+ * If the correct pte at the given level is a block, return it.
+ * Otherwise we recurse down to the next level. 
+ */
+// NOLINTNEXTLINE(misc-no-recursion)
+static pte_t *mm_get_pte_level(struct mm_page_table *table, ptable_addr_t address, uint8_t level, uint8_t *pte_level)
+{
+	pte_t *pte = &table->entries[mm_index(address, level)];
+	if(arch_mm_pte_is_block(*pte, level)){
+		*pte_level = level;
+		return pte;
+	}
+
+	if(level == 0 || !arch_mm_pte_is_table(*pte, level)){
+		return NULL;
+	}
+
+	return mm_get_pte_level(mm_page_table_from_pa(arch_mm_table_from_pte(*pte, level)), address, level - 1, pte_level);
+}
+
+/**
+ * returns the pte responsible for mapping the given address
+ */
+static pte_t *mm_get_pte_root(struct mm_ptable *t, ptable_addr_t pt_begin, uint8_t root_level, uint8_t *pte_level)
+{
+	struct mm_page_table *table = &mm_page_table_from_pa(t->root)[mm_index(pt_begin, root_level)];
+
+	return mm_get_pte_level(table, pt_begin, root_level - 1, pte_level);
 }
 
 /**
@@ -848,38 +907,38 @@ static int mm_mode_to_flags(uint32_t mode)
 }
 
 /**
- * See `mm_ptable_identity_prepare`.
+ * See `mm_ptable_prepare`.
  *
- * This must be called before `mm_vm_identity_commit` for the same mapping.
+ * This must be called before `mm_vm_commit` for the same mapping.
  *
  * Returns true on success, or false if the update would fail.
  */
-bool mm_vm_identity_prepare(struct mm_ptable *t, paddr_t begin, paddr_t end,
+bool mm_vm_prepare(struct mm_ptable *t, ipaddr_t ipa_begin, paddr_t begin, paddr_t end,
 			    uint32_t mode, struct mpool *ppool)
 {
 	int flags = mm_mode_to_flags(mode);
 
-	return mm_ptable_identity_prepare(t, begin, end,
+	return mm_ptable_prepare(t, begin, end, ipa_begin,
 					  arch_mm_mode_to_stage2_attrs(mode),
 					  flags, ppool);
 }
 
 /**
- * See `mm_ptable_identity_commit`.
+ * See `mm_ptable_commit`.
  *
- * `mm_vm_identity_prepare` must be called before this for the same mapping.
+ * `mm_vm_prepare` must be called before this for the same mapping.
  */
-void mm_vm_identity_commit(struct mm_ptable *t, paddr_t begin, paddr_t end,
+void mm_vm_commit(struct mm_ptable *t, ipaddr_t ipa_begin, paddr_t begin, paddr_t end,
 			   uint32_t mode, struct mpool *ppool, ipaddr_t *ipa)
 {
 	int flags = mm_mode_to_flags(mode);
 
-	mm_ptable_identity_commit(t, begin, end,
+	mm_ptable_commit(t, begin, end, ipa_begin,
 				  arch_mm_mode_to_stage2_attrs(mode), flags,
 				  ppool);
 
 	if (ipa != NULL) {
-		*ipa = ipa_from_pa(begin);
+		*ipa = (ipa_addr(ipa_begin) > 0) ? ipa_begin : ipa_from_pa(begin);
 	}
 }
 
@@ -896,12 +955,12 @@ void mm_vm_identity_commit(struct mm_ptable *t, paddr_t begin, paddr_t end,
  * Returns true on success, or false if the update failed and no changes were
  * made.
  */
-bool mm_vm_identity_map(struct mm_ptable *t, paddr_t begin, paddr_t end,
+bool mm_vm_map(struct mm_ptable *t, paddr_t begin, paddr_t end, ipaddr_t ipa_begin,
 			uint32_t mode, struct mpool *ppool, ipaddr_t *ipa)
 {
 	int flags = mm_mode_to_flags(mode);
-	bool success = mm_ptable_identity_update(
-		t, begin, end, arch_mm_mode_to_stage2_attrs(mode), flags,
+	bool success = mm_ptable_update(
+		t, begin, end, ipa_begin, arch_mm_mode_to_stage2_attrs(mode), flags,
 		ppool);
 
 	if (success && ipa != NULL) {
@@ -919,8 +978,8 @@ bool mm_vm_unmap(struct mm_ptable *t, paddr_t begin, paddr_t end,
 		 struct mpool *ppool)
 {
 	uint32_t mode = MM_MODE_UNMAPPED_MASK;
-
-	return mm_vm_identity_map(t, begin, end, mode, ppool, NULL);
+	/* TODO: not sure if we need the correct ipa value -> how to get it? */
+	return mm_vm_map(t, begin, end, ipa_from_pa(begin), mode, ppool, NULL);
 }
 
 /**
@@ -959,6 +1018,42 @@ bool mm_vm_get_mode(struct mm_ptable *t, ipaddr_t begin, ipaddr_t end,
 	return ret;
 }
 
+/**
+ * @brief Performs a software page table walk for Stage 2 page tables.
+ * To translate addresses faster use the functions provided by "addr_translator.h".
+ * 
+ * @param t The root page table for Stage 2 of the VM.
+ * @param ipa The address to translate.
+ * @param pa Holds the translated address if function returns true.
+ * @return true if a valid translation was found.
+ * @return false if the ipa could not be translated to a valid pa.
+ */
+bool mm_vm_page_table_walk(struct mm_ptable *t, ipaddr_t ipa, paddr_t *pa){
+	ptable_addr_t pt_begin = mm_round_down_to_page(ipa_addr(ipa));
+	uint8_t root_level = arch_mm_stage2_max_level() + 1;
+	uint8_t pte_level;
+
+	pte_t *pte = mm_get_pte_root(t, pt_begin, root_level, &pte_level);
+
+	if(pte == NULL){
+		dlog_error("Page Table walk for %#x was not successful with root table at %#x\n", ipa_addr(ipa), t);
+		return false;
+	}
+
+	uintpaddr_t ipa_offset = ipa_addr(ipa);
+	for (uint8_t lvl = pte_level; lvl <= root_level ; lvl++)
+	{
+		ipa_offset -= mm_index(pt_begin, lvl) * mm_entry_size(lvl);
+	}
+	
+	*pa = pa_init((*pte & PA_BITS_MASK) + ipa_offset);
+
+	// TO-DO: calculate translation based on pte and ipa
+
+	return true;
+
+}
+
 static struct mm_stage1_locked mm_stage1_lock_unsafe(void)
 {
 	return (struct mm_stage1_locked){.ptable = &ptable};
@@ -987,13 +1082,74 @@ void *mm_identity_map(struct mm_stage1_locked stage1_locked, paddr_t begin,
 {
 	int flags = MM_FLAG_STAGE1 | mm_mode_to_flags(mode);
 
-	if (mm_ptable_identity_update(stage1_locked.ptable, begin, end,
+	if(begin.pa != UART_BASE) /* can't print before UART is set up */
+	{
+		dlog_debug("mm_identity_map(mm:stage1_lock.ptable: %#x, begin.pa: %#x, end.pa: %#x, mode: %#x, ppool: %#x\n", stage1_locked.ptable, begin.pa, end.pa, mode, ppool);
+
+		if(begin.pa != layout_data_end().pa) //TODO: keep in sync with pma_init
+		{
+			pma_print_chunks();
+		}
+	}
+
+	if (mm_ptable_update(stage1_locked.ptable, begin, end, ipa_from_pa(begin),
 				      arch_mm_mode_to_stage1_attrs(mode), flags,
 				      ppool)) {
 		return ptr_from_va(va_from_pa(begin));
 	}
 
 	return NULL;
+}
+
+void *mm_identity_map_ptable(struct mm_ptable p, paddr_t begin,
+		      paddr_t end, uint32_t mode, struct mpool *ppool)
+{
+	int flags = MM_FLAG_STAGE1 | mm_mode_to_flags(mode);
+
+	if(begin.pa != 0x1c090000) //can't print before UART is set up
+	{
+		dlog_debug("mm_identity_map_ptable(mm:p: %#x, begin.pa: %#x, end.pa: %#x, mode: %#x, ppool: %#x\n", p, begin.pa, end.pa, mode, ppool);
+
+		pma_print_chunks();
+	}
+
+	if (mm_ptable_update(&p, begin, end, ipa_from_pa(begin),
+				      arch_mm_mode_to_stage1_attrs(mode), flags,
+				      ppool)) {
+		return ptr_from_va(va_from_pa(begin));
+	}
+
+	return NULL;
+}
+
+/*
+ * wrapper for the function mm_identity_map, which reserves (releases) the memory
+ * to be (un)mapped in page memory allocator (pma)
+ */
+void *mm_identity_map_and_reserve(struct mm_stage1_locked stage1_locked, paddr_t begin,
+                      paddr_t end, uint32_t mode, struct mpool *ppool)
+{
+	if(mm_mode_to_flags(mode) & MM_FLAG_UNMAP) //flags indicate unmmap
+	{
+		pma_release_memory(begin.pa, end.pa, HYPERVISOR_ID);
+		/*TODO: handle return value correctly. THis requires that *all* memory
+		* is covered by pma (currently only the first 2GB of DRAM are managed
+		* by pma). In particular, return false if the function pma_release_memory
+		* return false, otherwise continue
+		*/
+	}
+	else
+	{
+		pma_reserve_memory(begin.pa, end.pa, HYPERVISOR_ID);
+		/*TODO: handle return value correctly. THis requires that *all* memory
+		* is covered by pma (currently only the first 2GB of DRAM are managed
+		* by pma). In particular, return false if the function pma_reserve_memory
+		* return false, otherwise continue
+		*/
+	}
+
+	return mm_identity_map(stage1_locked, begin, end, mode, ppool);
+
 }
 
 /**
@@ -1005,15 +1161,7 @@ bool mm_unmap(struct mm_stage1_locked stage1_locked, paddr_t begin, paddr_t end,
 {
 	uint32_t mode = MM_MODE_UNMAPPED_MASK;
 
-	return mm_identity_map(stage1_locked, begin, end, mode, ppool);
-}
-
-/**
- * Defragments the hypervisor page table.
- */
-void mm_defrag(struct mm_stage1_locked stage1_locked, struct mpool *ppool)
-{
-	mm_ptable_defrag(stage1_locked.ptable, MM_FLAG_STAGE1, ppool);
+	return mm_identity_map_and_reserve(stage1_locked, begin, end, mode, ppool);
 }
 
 /**
@@ -1024,11 +1172,11 @@ bool mm_init(struct mpool *ppool)
 	/* Locking is not enabled yet so fake it, */
 	struct mm_stage1_locked stage1_locked = mm_stage1_lock_unsafe();
 
-	dlog_info("text: %#x - %#x\n", pa_addr(layout_text_begin()),
+	dlog_debug("text: %#x - %#x\n", pa_addr(layout_text_begin()),
 		  pa_addr(layout_text_end()));
-	dlog_info("rodata: %#x - %#x\n", pa_addr(layout_rodata_begin()),
+	dlog_debug("rodata: %#x - %#x\n", pa_addr(layout_rodata_begin()),
 		  pa_addr(layout_rodata_end()));
-	dlog_info("data: %#x - %#x\n", pa_addr(layout_data_begin()),
+	dlog_debug("data: %#x - %#x\n", pa_addr(layout_data_begin()),
 		  pa_addr(layout_data_end()));
 
 	if (!mm_ptable_init(&ptable, MM_FLAG_STAGE1, ppool)) {
@@ -1039,15 +1187,29 @@ bool mm_init(struct mpool *ppool)
 	/* Let console driver map pages for itself. */
 	plat_console_mm_init(stage1_locked, ppool);
 
+	if(!pma_init(stage1_locked, ppool))
+	{
+		dlog_error("Unable to initialize the page memory allocator (pma).\n");
+		return false;
+	}
+
 	/* Map each section. */
-	mm_identity_map(stage1_locked, layout_text_begin(), layout_text_end(),
-			MM_MODE_X, ppool);
+	CHECK(mm_identity_map_and_reserve(stage1_locked, layout_text_begin(), layout_text_end(),
+			MM_MODE_X, ppool) != NULL);
 
-	mm_identity_map(stage1_locked, layout_rodata_begin(),
-			layout_rodata_end(), MM_MODE_R, ppool);
+	CHECK(mm_identity_map_and_reserve(stage1_locked, layout_rodata_begin(),
+			layout_rodata_end(), MM_MODE_R, ppool) != NULL);
 
-	mm_identity_map(stage1_locked, layout_data_begin(), layout_data_end(),
-			MM_MODE_R | MM_MODE_W, ppool);
+	CHECK(mm_identity_map_and_reserve(stage1_locked, layout_data_begin(), layout_data_end(),
+			MM_MODE_R | MM_MODE_W, ppool) != NULL);
 
-	return arch_mm_init(ptable.root);
+	/** 
+	 * FB: This memory is somehow needed, not sure for what exactly 
+	 * MS: this seems to be skipped, as pma_init already maps the mentioned pages, so I commented it out. 
+	 */
+	//pma_reserve_memory(layout_data_end().pa, pa_add(layout_data_end(), 3*4096).pa, HYPERVISOR_ID);
+
+	CHECK(arch_mm_init(ptable.root));
+
+	return true;
 }

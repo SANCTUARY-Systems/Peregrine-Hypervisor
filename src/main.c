@@ -6,8 +6,10 @@
  * https://opensource.org/licenses/BSD-3-Clause.
  */
 
-#include "hf/cpu.h"
-#include "hf/vm.h"
+#include "pg/cpu.h"
+#include "pg/vm.h"
+#include "pg/dlog.h"
+#include "pg/error.h"
 
 /**
  * The entry point of CPUs when they are turned on. It is supposed to initialise
@@ -15,21 +17,28 @@
  */
 struct vcpu *cpu_main(struct cpu *c)
 {
-	struct vm *first_boot;
-	struct vcpu *vcpu;
+    struct vcpu *vcpu;
+    struct vm *vm;
+    size_t cpu_index_local;
 
-	/*
-	 * This returns the PVM in the normal world and the first
-	 * booted Secure Partition in the secure world.
-	 */
-	first_boot = vm_get_first_boot();
+    /* get VM of current CPU */
+    vm = vm_find_from_cpu(c);
+    DIE(!vm, "CPU %#x not assigned to any VM\n", c->id);
 
-	vcpu = vm_get_vcpu(first_boot, cpu_index(c));
+    /* get vCPU index of physical CPU in VM's context */
+    cpu_index_local = vm_local_cpu_index(c);
+    DIE(cpu_index_local == (uint16_t) -1,
+        "Unable to identify vCPU index of CPU %#x\n", c->id);
 
-	vcpu->cpu = c;
+    dlog_info("Start vCPU %d of VM 0x%x on the physical core 0x%x\n",
+              cpu_index_local, vm->id, c->id);
 
-	/* Reset the registers to give a clean start for vCPU. */
-	vcpu_reset(vcpu);
+    /* map physical CPU to vCPU structure */
+    vcpu = vm_get_vcpu(vm, cpu_index_local);
+    vcpu->cpu = c;
 
-	return vcpu;
+    /* reset the registers to give a clean start for vCPU */
+    vcpu_reset(vcpu);
+
+    return vcpu;
 }

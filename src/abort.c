@@ -6,7 +6,7 @@
  * https://opensource.org/licenses/BSD-3-Clause.
  */
 
-#include "hf/abort.h"
+#include "pg/abort.h"
 
 /**
  * Causes execution to halt and prevent progress of the current and less

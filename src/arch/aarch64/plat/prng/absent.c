@@ -5,6 +5,7 @@
  * license that can be found in the LICENSE file or at
  * https://opensource.org/licenses/BSD-3-Clause.
  */
+#include "pg/arch/plat/prng.h"
 
 __uint128_t plat_prng_get_number(void)
 {

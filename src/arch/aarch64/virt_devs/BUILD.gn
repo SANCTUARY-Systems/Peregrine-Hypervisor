@@ -1,0 +1,15 @@
+
+config("config") {
+  include_dirs = [ "." ]
+}
+
+source_set("virt_devs") {
+  sources = [
+    "imx_uart.c",
+    "anatop.c",
+    "clock_ctrl.c",
+    "iomux.c",
+    "sanct_uart.c",
+  ]
+}
+

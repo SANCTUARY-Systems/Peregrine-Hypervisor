@@ -6,12 +6,12 @@
  * https://opensource.org/licenses/BSD-3-Clause.
  */
 
-#include "hf/mm.h"
+#include "pg/mm.h"
 
-#include "hf/arch/barriers.h"
-#include "hf/arch/vm/mm.h"
+#include "pg/arch/barriers.h"
+#include "pg/arch/vm/mm.h"
 
-#include "hf/dlog.h"
+#include "pg/dlog.h"
 
 #include "../msr.h"
 

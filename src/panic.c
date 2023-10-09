@@ -6,12 +6,12 @@
  * https://opensource.org/licenses/BSD-3-Clause.
  */
 
-#include "hf/panic.h"
+#include "pg/panic.h"
 
 #include <stdarg.h>
 
-#include "hf/abort.h"
-#include "hf/dlog.h"
+#include "pg/abort.h"
+#include "pg/dlog.h"
 
 /**
  * Logs a reason before calling abort.

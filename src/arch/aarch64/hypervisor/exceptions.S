@@ -6,9 +6,9 @@
  * https://opensource.org/licenses/BSD-3-Clause.
  */
 
-#include "hf/arch/offsets.h"
+#include "pg/arch/offsets.h"
 
-#include "hf/arch/vmid_base.h"
+#include "pg/arch/vmid_base.h"
 
 #include "msr.h"
 #include "exception_macros.S"
@@ -41,6 +41,11 @@
 	stp x12, x13, [x18, #VCPU_REGS + 8 * 12]
 	stp x14, x15, [x18, #VCPU_REGS + 8 * 14]
 	stp x16, x17, [x18, #VCPU_REGS + 8 * 16]
+	stp x19, x20, [x18, #VCPU_REGS + 8 * 19]
+	stp x21, x22, [x18, #VCPU_REGS + 8 * 21]
+	stp x23, x24, [x18, #VCPU_REGS + 8 * 23]
+	stp x25, x26, [x18, #VCPU_REGS + 8 * 25]
+	stp x27, x28, [x18, #VCPU_REGS + 8 * 27]
 	stp x29, x30, [x18, #VCPU_REGS + 8 * 29]
 
 	/* x18 was saved on the stack, so we move it to vCPU regs buffer. */
@@ -109,17 +114,20 @@
 	sub x18, x18, #0x18
 	cbz x18, system_register_access
 
-	/* Call C handler passing the syndrome and fault address registers. */
-	mrs x0, esr_el2
-	mrs x1, far_el2
-	bl sync_lower_exception
-
-	/* Switch vCPU if requested by handler. */
-	cbnz x0, vcpu_switch
-
-	/* vCPU is not changing. */
-	mrs x0, tpidr_el2
-	b vcpu_restore_volatile_and_run
+//	/* Call C handler passing the syndrome and fault address registers. */
+//	mrs x0, esr_el2
+//	mrs x1, far_el2
+//	bl sync_lower_exception
+//
+//	/* Switch vCPU if requested by handler. */
+//	cbnz x0, vcpu_switch
+//
+//	/* vCPU is not changing. */
+//	mrs x0, tpidr_el2
+//	b vcpu_restore_volatile_and_run
+//NOTE: Moved all of the above code into 'sync_lower_exception_no_sysreg' as this
+//  got too big for the vector able entry
+	b sync_lower_exception_no_sysreg
 .endm
 
 /**
@@ -215,6 +223,24 @@ pauth_save_vcpu_and_restore_hyp_key:
 	pauth_restore_hypervisor_key x0 x1
 	ret
 #endif
+
+/**
+ * Handle all sync exceptions from lower EL that are non-system register accesses (EC != 0x18)
+ * NOTE: Moved from 'lower_sync_exception', as it got too big to fit into the vector table entry
+ */
+sync_lower_exception_no_sysreg:
+	/* Call C handler passing the syndrome and fault address registers. */
+	mrs x0, esr_el2
+	mrs x1, far_el2
+	bl sync_lower_exception
+
+	/* Switch vCPU if requested by handler. */
+	cbnz x0, vcpu_switch
+
+	/* vCPU is not changing. */
+	mrs x0, tpidr_el2
+	b vcpu_restore_volatile_and_run
+
 
 /**
  * Handle accesses to system registers (EC=0x18) and return to original caller.
@@ -420,148 +446,6 @@ skip_vhe_save:
 	bl complete_saving_state
 	mov x0, x19
 
-#if SECURE_WORLD == 1
-
-	ldr x1, [x0, #VCPU_VM]
-	ldrh w1, [x1, #VM_ID]
-
-	/* Exit to normal world if VM is HF_OTHER_WORLD_ID. */
-	cmp w1, #HF_OTHER_WORLD_ID
-	bne vcpu_restore_all_and_run
-
-	/*
-	 * The current vCPU state is saved so it's now safe to switch to the
-	 * normal world.
-	 */
-
-other_world_loop:
-	/* Check if SVE is implemented. */
-	mrs x0, id_aa64pfr0_el1
-	ubfx x0, x0, ID_AA64PFR0_SVE_SHIFT, ID_AA64PFR0_SVE_LENGTH
-	cbnz x0, sve_context_restore
-
-	/* Restore the other world SIMD context to the other world VM vCPU. */
-	add x18, x19, #VCPU_FREGS
-	simd_op_vectors ldp, x18
-	ldp x0, x1, [x18]
-	msr fpsr, x0
-	msr fpcr, x1
-	b sve_skip_context_restore
-
-	/* Restore the other world SVE context from internal buffer. */
-sve_context_restore:
-	adrp x18, sve_context
-	add x18, x18, :lo12: sve_context
-	ldr x0, [x19, #VCPU_CPU]
-	bl cpu_index
-	mov x20, #SVE_CTX_SIZE
-	madd x18, x0, x20, x18
-
-	/* Restore vector registers. */
-	sve_op_vectors ldr, x18
-	/* Restore FFR register before predicates. */
-	add x20, x18, #SVE_CTX_FFR
-	ldr p0, [x20]
-	wrffr p0.b
-	/* Restore predicate registers. */
-	add x20, x18, #SVE_CTX_PREDICATES
-	sve_predicate_op ldr, x20
-
-	/*
-	 * Prepare arguments from other world VM vCPU.
-	 * x19 holds the other world VM vCPU pointer.
-	 */
-sve_skip_context_restore:
-	ldp x0, x1, [x19, #VCPU_REGS + 8 * 0]
-	ldp x2, x3, [x19, #VCPU_REGS + 8 * 2]
-	ldp x4, x5, [x19, #VCPU_REGS + 8 * 4]
-	ldp x6, x7, [x19, #VCPU_REGS + 8 * 6]
-
-#if BRANCH_PROTECTION
-	/*
-	 * EL3 saves pointer authentication keys when entering by SMC.
-	 * Although prefer clearing the keys to be on the safe side.
-	 */
-	msr APIAKEYLO_EL1, xzr
-	msr APIAKEYHI_EL1, xzr
-	msr APIBKEYLO_EL1, xzr
-	msr APIBKEYHI_EL1, xzr
-	msr APDAKEYLO_EL1, xzr
-	msr APDAKEYHI_EL1, xzr
-	msr APDBKEYLO_EL1, xzr
-	msr APDBKEYHI_EL1, xzr
-	msr APGAKEYLO_EL1, xzr
-	msr APGAKEYHI_EL1, xzr
-#endif
-
-	smc #0
-
-	/*
-	 * The call to EL3 returned, First eight GP registers contain an FF-A
-	 * call from the physical FF-A instance. Save those arguments to the
-	 * other world VM vCPU.
-	 * x19 is restored with the other world VM vCPU pointer.
-	 */
-	stp x0, x1, [x19, #VCPU_REGS + 8 * 0]
-	stp x2, x3, [x19, #VCPU_REGS + 8 * 2]
-	stp x4, x5, [x19, #VCPU_REGS + 8 * 4]
-	stp x6, x7, [x19, #VCPU_REGS + 8 * 6]
-
-	/* Check if SVE is implemented. */
-	mrs x0, id_aa64pfr0_el1
-	ubfx x0, x0, ID_AA64PFR0_SVE_SHIFT, ID_AA64PFR0_SVE_LENGTH
-	cbnz x0, sve_context_save
-
-	/* Save the other world SIMD context to the other world VM vCPU. */
-	add x18, x19, #VCPU_FREGS
-	simd_op_vectors stp, x18
-	mrs x0, fpsr
-	mrs x1, fpcr
-	stp x0, x1, [x18]
-	b sve_skip_context_save
-
-	/* Save the other world SVE context to internal buffer. */
-sve_context_save:
-	adrp x18, sve_context
-	add x18, x18, :lo12: sve_context
-	ldr x0, [x19, #VCPU_CPU]
-	bl cpu_index
-	mov x20, #SVE_CTX_SIZE
-	madd x18, x0, x20, x18
-
-	/* Save vector registers. */
-	sve_op_vectors str, x18
-	/* Save predicate registers. */
-	add x20, x18, #SVE_CTX_PREDICATES
-	sve_predicate_op str, x20
-	/* Save FFR register after predicates. */
-	add x20, x18, #SVE_CTX_FFR
-	rdffr p0.b
-	str p0, [x20]
-
-sve_skip_context_save:
-
-#if BRANCH_PROTECTION
-	pauth_restore_hypervisor_key x0 x1
-#endif
-
-	/*
-	 * Stack is at top and execution can restart straight into C code.
-	 * Handle the FF-A call from other world.
-	 */
-	mov x0, x19
-	bl smc_handler_from_nwd
-
-	/*
-	 * If the smc handler returns null this indicates no vCPU has to be
-	 * resumed and GP registers contain a fresh FF-A response or call
-	 * directed to the normal world. Hence loop back and emit SMC again.
-	 * Otherwise restore the vCPU pointed to by the handler return value.
-	 */
-	cbz x0, other_world_loop
-
-#endif
-
 	/* Intentional fallthrough. */
 .global vcpu_restore_all_and_run
 vcpu_restore_all_and_run:
@@ -693,10 +577,6 @@ skip_vhe_restore:
 	msr cnthctl_el2, x26
 	msr vttbr_el2, x27
 
-#if SECURE_WORLD == 1
-	msr MSR_VSTTBR_EL2, x27
-#endif
-
 	ldp x4, x5, [x28], #16
 	msr mdcr_el2, x4
 	msr mdscr_el1, x5
@@ -794,6 +674,11 @@ vcpu_restore_volatile_and_run:
 	ldp x14, x15, [x0, #VCPU_REGS + 8 * 14]
 	ldp x16, x17, [x0, #VCPU_REGS + 8 * 16]
 	ldr x18, [x0, #VCPU_REGS + 8 * 18]
+	ldp x19, x20, [x0, #VCPU_REGS + 8 * 19]
+	ldp x21, x22, [x0, #VCPU_REGS + 8 * 21]
+	ldp x23, x24, [x0, #VCPU_REGS + 8 * 23]
+	ldp x25, x26, [x0, #VCPU_REGS + 8 * 25]
+	ldp x27, x28, [x0, #VCPU_REGS + 8 * 27]
 	ldp x29, x30, [x0, #VCPU_REGS + 8 * 29]
 
 	/* Restore return address & mode. */

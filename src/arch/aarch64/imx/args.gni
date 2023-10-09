@@ -1,0 +1,6 @@
+# default values for declared arguments
+# see BUILD.gn for usable macro definition names
+declare_args() {
+  uart_clock = 0
+  uart_baudrate = 115200
+}

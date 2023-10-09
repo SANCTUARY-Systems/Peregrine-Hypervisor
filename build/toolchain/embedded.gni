@@ -115,17 +115,20 @@ template("embedded_clang_toolchain") {
                            [
                              "extra_defines",
                              "extra_cflags",
-                             "extra_ldflags",
+                             "extra_ldflags"
                            ])
 
     # TODO: Remove //inc/system if we can stop using the version of stdatomic.h
     # from the Android prebuilt Clang.
-    extra_cflags +=
-        " -target ${invoker.target} -fcolor-diagnostics -nostdinc -isystem" +
-        rebase_path("//prebuilts/linux-x64/clang/lib64/clang/9.0.8/include") +
-        " -isystem" + rebase_path("//inc/system")
-    extra_ldflags +=
-        " -O2 -lto-O2 --icf=all --fatal-warnings --color-diagnostics"
+    extra_cflags += " -target ${invoker.target} -fcolor-diagnostics" +
+                    " -isystem " + rebase_path("${toolchain_lib}/include")
+    if (use_prebuilt == true) {
+      extra_cflags += " -nostdinc -isystem " + rebase_path("//inc/system")
+    } else {
+      ld = "ld.lld-10"
+    }
+
+    extra_ldflags += " -O2 --icf=all --fatal-warnings --color-diagnostics"
 
     toolchain_args = {
       if (defined(invoker.toolchain_args)) {
@@ -162,7 +165,7 @@ template("embedded_clang_bfd_toolchain") {
     extra_cflags += " -target ${invoker.target} -fcolor-diagnostics"
     extra_ldflags += " --fatal-warnings"
     if (use_lto) {
-      extra_ldflags += " -O2 -lto-O2 --icf=all"
+      extra_ldflags += " -O2 --icf=all"
     }
 
     toolchain_args = {
@@ -184,10 +187,6 @@ template("embedded_platform_toolchain") {
          "\"origin_address\" must be defined for ${target_name}.")
   assert(defined(invoker.heap_pages),
          "\"heap_pages\" must be defined for ${target_name}.")
-  assert(defined(invoker.max_cpus),
-         "\"max_cpus\" must be defined for ${target_name}.")
-  assert(defined(invoker.max_vms),
-         "\"max_vms\" must be defined for ${target_name}.")
   assert(defined(invoker.platform_name),
          "\"platform_name\" must be defined for ${target_name}.")
 
@@ -208,8 +207,9 @@ template("embedded_platform_toolchain") {
     plat_name = invoker.platform_name
     plat_arch = invoker.arch
     plat_heap_pages = invoker.heap_pages
-    plat_max_cpus = invoker.max_cpus
-    plat_max_vms = invoker.max_vms
+    if (defined(invoker.test_mode)) {
+      plat_test_mode = invoker.test_mode
+    }
     if (defined(invoker.toolchain_args)) {
       forward_variables_from(invoker.toolchain_args, "*")
     }
@@ -235,19 +235,29 @@ template("aarch64_common_toolchain") {
          "\"tool_prefix\" must be defined for ${target_name}")
   assert(defined(invoker.origin_address),
          "\"origin_address\" must be defined for ${target_name}.")
+  assert(defined(invoker.phys_start_addr),
+         "\"phys_start_addr\" must be defined for ${target_name}.")
+  assert(defined(invoker.phys_mem_size),
+         "\"phys_mem_size\" must be defined for ${target_name}.")
   assert(defined(invoker.console),
          "\"console\" must be defined for ${target_name}.")
   assert(defined(invoker.heap_pages),
          "\"heap_pages\" must be defined for ${target_name}.")
-  assert(defined(invoker.max_cpus),
-         "\"max_cpus\" must be defined for ${target_name}.")
-  assert(defined(invoker.max_vms),
-         "\"max_vms\" must be defined for ${target_name}.")
+  assert(defined(invoker.uart_base_address),
+         "\"uart_base_address\" must be defined for ${target_name}.")
   if (invoker.gic_version == 3 || invoker.gic_version == 4) {
+    assert(defined(invoker.gic_start),
+           "\"gic_start\" must be defined for ${target_name}.")
+    assert(defined(invoker.gic_end),
+           "\"gic_end\" must be defined for ${target_name}.")
     assert(defined(invoker.gicd_base_address),
            "\"gicd_base_address\" must be defined for ${target_name}.")
+    assert(defined(invoker.gicd_size),
+           "\"gicd_size\" must be defined for ${target_name}.")
     assert(defined(invoker.gicr_base_address),
            "\"gicr_base_address\" must be defined for ${target_name}.")
+    assert(defined(invoker.gicr_size),
+           "\"gicr_size\" must be defined for ${target_name}.")
   }
   assert(defined(invoker.platform_name),
          "\"platform_name\" must be defined for ${target_name}.")
@@ -257,10 +267,9 @@ template("aarch64_common_toolchain") {
                            [
                              "origin_address",
                              "heap_pages",
-                             "max_cpus",
-                             "max_vms",
                              "platform_name",
                              "extra_ldflags",
+                             "test_mode",
                            ])
     arch = "aarch64"
     target = invoker.target
@@ -275,17 +284,139 @@ template("aarch64_common_toolchain") {
       extra_defines += " ${invoker.extra_defines}"
     }
 
+    extra_defines += " -DPHYS_START_ADDR=${invoker.phys_start_addr}"
+    extra_defines += " -DPHYS_MEM_SIZE=${invoker.phys_mem_size}"
+
+    extra_defines += " -DUART_BASE=${invoker.uart_base_address}"
+
     if (invoker.gic_version > 0) {
       extra_defines += " -DGIC_VERSION=${invoker.gic_version}"
     }
+
     if (invoker.gic_version == 3 || invoker.gic_version == 4) {
-      extra_defines += " -DGICD_BASE=${invoker.gicd_base_address} -DGICR_BASE=${invoker.gicr_base_address}"
+      # GIC_{START,END} needed for mapping GIC to hypervisor
+      extra_defines += " -DGIC_START=${invoker.gic_start}"
+      extra_defines += " -DGIC_END=${invoker.gic_end}"
+
+      # GICD & GICR should always be defined
+      extra_defines += " -DGICD_BASE=${invoker.gicd_base_address}"
+      extra_defines += " -DGICD_SIZE=${invoker.gicd_size}"
+      extra_defines += " -DGICR_BASE=${invoker.gicr_base_address}"
+      extra_defines += " -DGICR_SIZE=${invoker.gicr_size}"
+
+      # GIC extensions (all optional)
+      if (defined(invoker.gicc_base_address)
+      &&  defined(invoker.gicc_size))
+      {
+        extra_defines += " -DGICC_BASE=${invoker.gicc_base_address}"
+        extra_defines += " -DGICC_SIZE=${invoker.gicc_size}"
+      }
+
+      if (defined(invoker.gich_base_address)
+      &&  defined(invoker.gich_size))
+      {
+        extra_defines += " -DGICH_BASE=${invoker.gich_base_address}"
+        extra_defines += " -DGICH_SIZE=${invoker.gich_size}"
+      }
+
+      if (defined(invoker.gicv_base_address)
+      &&  defined(invoker.gicv_size))
+      {
+        extra_defines += " -DGICV_BASE=${invoker.gicv_base_address}"
+        extra_defines += " -DGICV_SIZE=${invoker.gicv_size}"
+      }
+
+      if (defined(invoker.gits_base_address)
+      &&  defined(invoker.gits_size))
+      {
+        extra_defines += " -DGITS_BASE=${invoker.gits_base_address}"
+        extra_defines += " -DGITS_SIZE=${invoker.gits_size}"
+      }
+    }
+
+    # sanctuary virtual uart devices
+    if (defined(invoker.sanct_uart_base)
+    &&  defined(invoker.sanct_uart_size)
+    &&  defined(invoker.sanct_uart_devs))
+    {
+        extra_defines += " -DV_SANCT_UART_BASE=${invoker.sanct_uart_base}"
+        extra_defines += " -DV_SANCT_UART_SIZE=${invoker.sanct_uart_size}"
+        extra_defines += " -DV_SANCT_UART_DEVS=${invoker.sanct_uart_devs}"
+    }
+
+    # imx uart virtual devices
+    if (defined(invoker.imx_uart_base)
+    &&  defined(invoker.imx_uart_size)
+    &&  defined(invoker.imx_uart_devs))
+    {
+        extra_defines += " -DV_IMX_UART_BASE=${invoker.imx_uart_base}"
+        extra_defines += " -DV_IMX_UART_SIZE=${invoker.imx_uart_size}"
+        extra_defines += " -DV_IMX_UART_DEVS=${invoker.imx_uart_devs}"
+    }
+    if (defined(invoker.imx_uart_dirmap)) {
+        extra_defines += " -DV_IMX_UART_DIRMAP=${invoker.imx_uart_dirmap}"
+    }
+
+    # anatop virtual devices
+    if (defined(invoker.anatop_base)
+    &&  defined(invoker.anatop_size)
+    &&  defined(invoker.anatop_devs))
+    {
+        extra_defines += " -DV_ANATOP_BASE=${invoker.anatop_base}"
+        extra_defines += " -DV_ANATOP_SIZE=${invoker.anatop_size}"
+        extra_defines += " -DV_ANATOP_DEVS=${invoker.anatop_devs}"
+
+    }
+    if (defined(invoker.anatop_dirmap)) {
+        extra_defines += " -DV_ANATOP_DIRMAP=${invoker.anatop_dirmap}"
+    }
+
+    # clock controller virtual devices
+    if (defined(invoker.clock_ctrl_base)
+    &&  defined(invoker.clock_ctrl_size)
+    &&  defined(invoker.clock_ctrl_devs))
+    {
+        extra_defines += " -DV_CLOCK_CTRL_BASE=${invoker.clock_ctrl_base}"
+        extra_defines += " -DV_CLOCK_CTRL_SIZE=${invoker.clock_ctrl_size}"
+        extra_defines += " -DV_CLOCK_CTRL_DEVS=${invoker.clock_ctrl_devs}"
+    }
+    if (defined(invoker.clock_ctrl_dirmap)) {
+        extra_defines += " -DV_CLOCK_CTRL_DIRMAP=${invoker.clock_ctrl_dirmap}"
+    }
+
+    # pin controller virtual devices
+    if (defined(invoker.iomux_base)
+    &&  defined(invoker.iomux_size)
+    &&  defined(invoker.iomux_devs))
+    {
+        extra_defines += " -DV_IOMUX_BASE=${invoker.iomux_base}"
+        extra_defines += " -DV_IOMUX_SIZE=${invoker.iomux_size}"
+        extra_defines += " -DV_IOMUX_DEVS=${invoker.iomux_devs}"
+    }
+    if (defined(invoker.iomux_dirmap)) {
+        extra_defines += " -DV_IOMUX_DIRMAP=${invoker.iomux_dirmap}"
+    }
+
+    if (defined(invoker.external_mediator_include))
+    {
+        extra_defines += " -DEXTERNAL_MEDIATOR_INCLUDE=${invoker.external_mediator_include}"
     }
 
     toolchain_args = {
       plat_boot_flow = invoker.boot_flow
       plat_console = invoker.console
       plat_iommu = invoker.iommu
+
+      plat_proprietary = ""
+      plat_proprietary_unit = ""
+      plat_proprietary_inc = ""
+
+      if (defined(invoker.proprietary) && invoker.proprietary != "") {
+        plat_proprietary_unit = "${invoker.proprietary}:unit_tests"
+        plat_proprietary = "${invoker.proprietary}:proprietary"
+        plat_proprietary_inc = "${invoker.proprietary}/inc"
+      }
+
       if (defined(invoker.stdout)) {
         stdout = invoker.stdout
       }
@@ -308,21 +439,7 @@ template("aarch64_toolchain") {
 
 template("aarch64_toolchains") {
   aarch64_toolchain("${target_name}") {
-    forward_variables_from(invoker,
-                           [
-                             "origin_address",
-                             "boot_flow",
-                             "console",
-                             "iommu",
-                             "gic_version",
-                             "gicd_base_address",
-                             "gicr_base_address",
-                             "heap_pages",
-                             "max_cpus",
-                             "max_image_size",
-                             "max_vms",
-                             "toolchain_args",
-                           ])
+    forward_variables_from(invoker, "*")
     cpu = "${invoker.cpu}+nofp"
 
     # Add a macro so files can tell whether they are not being built for a VM.
@@ -339,12 +456,27 @@ template("aarch64_toolchains") {
     forward_variables_from(invoker,
                            [
                              "origin_address",
+                             "phys_start_addr",
+                             "phys_mem_size",
                              "gic_version",
+                             "gic_start",
+                             "gic_end",
                              "gicd_base_address",
+                             "gicd_size",
                              "gicr_base_address",
-                             "max_cpus",
+                             "gicr_size",
+                             "gicc_base_address",
+                             "gicc_size",
+                             "gich_base_address",
+                             "gich_size",
+                             "gicv_base_address",
+                             "gicv_size",
+                             "gits_base_address",
+                             "gits_size",
+                             "uart_base_address",
                              "toolchain_args",
                              "console",
+                             "proprietary"
                            ])
     cpu = "${invoker.cpu}+fp"
     boot_flow = "//src/arch/fake:boot_flow"
@@ -353,7 +485,6 @@ template("aarch64_toolchains") {
 
     # Nonsense values because they are required but shouldn't be used.
     heap_pages = 0
-    max_vms = 0
 
     # Add a macro so files can tell whether they are being built for a VM.
     extra_defines = " -DVM_TOOLCHAIN=1"

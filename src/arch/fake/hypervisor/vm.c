@@ -6,7 +6,7 @@
  * https://opensource.org/licenses/BSD-3-Clause.
  */
 
-#include "hf/arch/vm.h"
+#include "pg/arch/vm.h"
 
 ffa_partition_properties_t arch_vm_partition_properties(ffa_vm_id_t id)
 {

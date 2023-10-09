@@ -6,7 +6,7 @@
  * https://opensource.org/licenses/BSD-3-Clause.
  */
 
-#include "hf/arch/vm/events.h"
+#include "pg/arch/vm/events.h"
 
 void event_wait(void)
 {

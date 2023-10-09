@@ -6,7 +6,7 @@
  * https://opensource.org/licenses/BSD-3-Clause.
  */
 
-#include "hf/dlog.h"
+#include "pg/dlog.h"
 
 #include "test/hftest.h"
 

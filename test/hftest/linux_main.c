@@ -13,7 +13,7 @@
 #include <string.h>
 #include <unistd.h>
 
-#include "hf/memiter.h"
+#include "pg/memiter.h"
 
 #include "hftest_common.h"
 #include "test/hftest.h"

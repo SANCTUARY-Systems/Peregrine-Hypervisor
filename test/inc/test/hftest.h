@@ -13,9 +13,9 @@
 #include <stdint.h>
 #include <stdnoreturn.h>
 
-#include "hf/dlog.h"
-#include "hf/fdt.h"
-#include "hf/memiter.h"
+#include "pg/dlog.h"
+#include "pg/fdt.h"
+#include "pg/memiter.h"
 
 /*
  * Define a set up function to be run before every test in a test suite.
@@ -78,7 +78,7 @@
  * This must be used exactly once in a test image to signal to the linker that
  * the .hftest section is allowed to be included in the generated image.
  */
-#define HFTEST_ENABLE() int hftest_enable
+#define HFTEST_ENABLE() __attribute__((used)) int hftest_enable
 
 /*
  * Prefixed to log lines from tests for easy filtering in the console.
@@ -143,5 +143,6 @@ bool hftest_cpu_start(uintptr_t id, void *stack, size_t stack_size,
 
 uintptr_t hftest_get_cpu_id(size_t index);
 
+noreturn void hftest_service_main(const void *fdt_ptr);
 /* Above this point is the public API. Now include the implementation. */
 #include "hftest_impl.h"

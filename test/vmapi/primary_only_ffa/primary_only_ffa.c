@@ -6,14 +6,14 @@
  * https://opensource.org/licenses/BSD-3-Clause.
  */
 
-#include "vmapi/hf/call.h"
+#include "vmapi/pg/call.h"
 
 #include "test/hftest.h"
 
 /**
  * Confirms the primary VM has the primary ID.
  */
-TEST(hf_vm_get_id, primary_has_primary_id)
+TEST(pg_vm_get_id, primary_has_primary_id)
 {
-	EXPECT_EQ(hf_vm_get_id(), HF_PRIMARY_VM_ID);
+	EXPECT_EQ(pg_vm_get_id(), PG_PRIMARY_VM_ID);
 }

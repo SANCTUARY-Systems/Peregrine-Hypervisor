@@ -5,7 +5,7 @@
 # https://opensource.org/licenses/BSD-3-Clause.
 
 # Select the project to build.
-PROJECT ?= reference
+PROJECT ?= fvp
 
 # If HAFNIUM_HERMETIC_BUILD is "true" (not default), invoke `make` inside
 # a container. The 'run_in_container.sh' script will set the variable value to
@@ -27,12 +27,33 @@ all:
 else  # HAFNIUM_HERMETIC_BUILD
 
 # Set path to prebuilts used in the build.
-UNNAME_S := $(shell uname -s | tr '[:upper:]' '[:lower:]')
-PREBUILTS := $(CURDIR)/prebuilts/$(UNNAME_S)-x64
+UNAME_S := $(shell uname -s | tr '[:upper:]' '[:lower:]')
+UNAME_M := $(shell uname -m)
+
+ifeq ($(UNAME_M),x86_64)
+UNAME_M := x64
+endif
+
+PREBUILTS := $(CURDIR)/prebuilts/$(UNAME_S)-$(UNAME_M)
+
+ifeq ($(origin CLANG_PATH),undefined)
+	USE_PREBUILT := true
+else	
+	USE_PREBUILT := false
+endif
+
+CLANG_PATH ?= $(PREBUILTS)/clang/bin/clang
+
+$(info Clang: $(CLANG_PATH))
+
+CLANG_DIR := $(shell dirname $(CLANG_PATH))
+TOOLCHAIN_LIB := $(shell $(CLANG_DIR)/clang --print-resource-dir)
+LLVM_UTILS := $(dir  $(shell $(CLANG_DIR)/clang --print-prog-name=llvm-ar))
+
+export PATH := $(CLANG_DIR):$(LLVM_UTILS):$(PATH)
+export PYTHONPATH := $(CLANG_DIR):$(LLVM_UTILS):$(PYTHONPATH)
 GN ?= $(PREBUILTS)/gn/gn
 NINJA ?= $(PREBUILTS)/ninja/ninja
-export PATH := $(PREBUILTS)/clang/bin:$(PATH)
-
 
 CHECKPATCH := $(CURDIR)/third_party/linux/scripts/checkpatch.pl \
 	--ignore BRACES,SPDX_LICENSE_TAG,VOLATILE,SPLIT_STRING,AVOID_EXTERNS,USE_SPINLOCK_T,NEW_TYPEDEFS,INITIALISED_STATIC,FILE_PATH_CHANGES,EMBEDDED_FUNCTION_NAME,SINGLE_STATEMENT_DO_WHILE_MACRO,MACRO_WITH_FLOW_CONTROL,PREFER_PACKED,PREFER_ALIGNED,INDENTED_LABEL,SPACING --quiet
@@ -53,7 +74,7 @@ all: $(OUT_DIR)/build.ninja
 	@$(NINJA) -C $(OUT_DIR)
 
 $(OUT_DIR)/build.ninja:
-	@$(GN) --export-compile-commands gen --args='project="$(PROJECT)"' $(OUT_DIR)
+	@$(GN) --export-compile-commands gen --args='project="$(PROJECT)" toolchain_lib="$(TOOLCHAIN_LIB)" use_prebuilt=$(USE_PREBUILT)' $(OUT_DIR)
 
 .PHONY: clean
 clean:
@@ -88,16 +109,16 @@ tidy: $(OUT_DIR)/build.ninja
 	@echo "Tidying..."
 	# TODO: enable readability-magic-numbers once there are fewer violations.
 	# TODO: enable for c++ tests as it currently gives spurious errors.
-	@find src/ \( -name \*.c \) | xargs prebuilts/linux-x64/clang/bin/clang-tidy -p $(OUT_DIR) -fix
-	@find test/ \( -name \*.c \) | xargs prebuilts/linux-x64/clang/bin/clang-tidy -p $(OUT_DIR) -fix
+	@find src/ \( -name \*.c \) | xargs clang-tidy -p $(OUT_DIR) -fix
+	@find test/ \( -name \*.c \) | xargs clang-tidy -p $(OUT_DIR) -fix
 
 .PHONY: check
 check: $(OUT_DIR)/build.ninja
 	@$(NINJA) -C $(OUT_DIR)
 	@echo "Checking..."
 	# TODO: enable for c++ tests as it currently gives spurious errors.
-	@find src/ \( -name \*.c \) | xargs prebuilts/linux-x64/clang/bin/clang-check -p $(OUT_DIR) -analyze -fix-what-you-can
-	@find test/ \( -name \*.c \) | xargs prebuilts/linux-x64/clang/bin/clang-check -p $(OUT_DIR) -analyze -fix-what-you-can
+	@find src/ \( -name \*.c \) | xargs clang-check -p $(OUT_DIR) -analyze -fix-what-you-can
+	@find test/ \( -name \*.c \) | xargs clang-check -p $(OUT_DIR) -analyze -fix-what-you-can
 
 .PHONY: license
 license:

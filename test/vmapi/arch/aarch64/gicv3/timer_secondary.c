@@ -6,12 +6,12 @@
  * https://opensource.org/licenses/BSD-3-Clause.
  */
 
-#include "hf/arch/irq.h"
-#include "hf/arch/vm/interrupts_gicv3.h"
+#include "pg/arch/irq.h"
+#include "pg/arch/vm/interrupts_gicv3.h"
 
-#include "hf/abi.h"
-#include "hf/call.h"
-#include "hf/ffa.h"
+#include "pg/abi.h"
+#include "pg/call.h"
+#include "pg/ffa.h"
 
 #include "gicv3.h"
 #include "test/hftest.h"
@@ -69,7 +69,7 @@ static void timer_busywait_secondary()
 	/* Send the message for the secondary to set a timer. */
 	memcpy_s(send_buffer, FFA_MSG_PAYLOAD_MAX, message, sizeof(message));
 	EXPECT_EQ(
-		ffa_msg_send(HF_PRIMARY_VM_ID, SERVICE_VM1, sizeof(message), 0)
+		ffa_msg_send(PG_PRIMARY_VM_ID, SERVICE_VM1, sizeof(message), 0)
 			.func,
 		FFA_SUCCESS_32);
 
@@ -126,7 +126,7 @@ static void timer_secondary(const char message[], uint64_t expected_code)
 
 	/* Send the message for the secondary to set a timer. */
 	memcpy_s(send_buffer, FFA_MSG_PAYLOAD_MAX, message, message_length);
-	EXPECT_EQ(ffa_msg_send(HF_PRIMARY_VM_ID, SERVICE_VM1, message_length, 0)
+	EXPECT_EQ(ffa_msg_send(PG_PRIMARY_VM_ID, SERVICE_VM1, message_length, 0)
 			  .func,
 		  FFA_SUCCESS_32);
 
@@ -160,7 +160,7 @@ static void timer_secondary(const char message[], uint64_t expected_code)
 		 * switch to the primary before the timer fires.
 		 */
 		dlog("Primary looping until timer fires\n");
-		if (expected_code == HF_FFA_RUN_WAIT_FOR_INTERRUPT ||
+		if (expected_code == PG_FFA_RUN_WAIT_FOR_INTERRUPT ||
 		    expected_code == FFA_MSG_WAIT_32) {
 			EXPECT_NE(run_res.arg2, FFA_SLEEP_INDEFINITE);
 			dlog("%d ns remaining\n", run_res.arg2);
@@ -206,8 +206,8 @@ TEST(timer_secondary, wfi_short)
 	 * Run the test twice in a row, to check that the state doesn't get
 	 * messed up.
 	 */
-	timer_secondary("WFI  0000001", HF_FFA_RUN_WAIT_FOR_INTERRUPT);
-	timer_secondary("WFI  0000001", HF_FFA_RUN_WAIT_FOR_INTERRUPT);
+	timer_secondary("WFI  0000001", PG_FFA_RUN_WAIT_FOR_INTERRUPT);
+	timer_secondary("WFI  0000001", PG_FFA_RUN_WAIT_FOR_INTERRUPT);
 }
 
 TEST(timer_secondary, wfi_long)
@@ -216,8 +216,8 @@ TEST(timer_secondary, wfi_long)
 	 * Run the test twice in a row, to check that the state doesn't get
 	 * messed up.
 	 */
-	timer_secondary("WFI  0099999", HF_FFA_RUN_WAIT_FOR_INTERRUPT);
-	timer_secondary("WFI  0099999", HF_FFA_RUN_WAIT_FOR_INTERRUPT);
+	timer_secondary("WFI  0099999", PG_FFA_RUN_WAIT_FOR_INTERRUPT);
+	timer_secondary("WFI  0099999", PG_FFA_RUN_WAIT_FOR_INTERRUPT);
 }
 
 TEST(timer_secondary, wfe_short)
@@ -276,7 +276,7 @@ TEST(timer_secondary, wfi_very_long)
 
 	/* Send the message for the secondary to set a timer. */
 	memcpy_s(send_buffer, FFA_MSG_PAYLOAD_MAX, message, message_length);
-	EXPECT_EQ(ffa_msg_send(HF_PRIMARY_VM_ID, SERVICE_VM1, message_length, 0)
+	EXPECT_EQ(ffa_msg_send(PG_PRIMARY_VM_ID, SERVICE_VM1, message_length, 0)
 			  .func,
 		  FFA_SUCCESS_32);
 
@@ -286,7 +286,7 @@ TEST(timer_secondary, wfi_very_long)
 	last_interrupt_id = 0;
 	for (int i = 0; i < 20; ++i) {
 		run_res = ffa_run(SERVICE_VM1, 0);
-		EXPECT_EQ(run_res.func, HF_FFA_RUN_WAIT_FOR_INTERRUPT);
+		EXPECT_EQ(run_res.func, PG_FFA_RUN_WAIT_FOR_INTERRUPT);
 		dlog("Primary looping until timer fires; %d ns "
 		     "remaining\n",
 		     run_res.arg2);
@@ -308,7 +308,7 @@ TEST(timer_secondary_ffa, timer_ffa_direct_msg_timeout)
 	EXPECT_EQ(res.arg2, FFA_SLEEP_INDEFINITE);
 
 	/* Unblock secondary VM so it starts a long timer */
-	res = ffa_msg_send_direct_req(HF_PRIMARY_VM_ID, SERVICE_VM1, 1, 0, 0, 0,
+	res = ffa_msg_send_direct_req(PG_PRIMARY_VM_ID, SERVICE_VM1, 1, 0, 0, 0,
 				      0);
 	EXPECT_EQ(res.func, FFA_MSG_SEND_DIRECT_RESP_32);
 	EXPECT_EQ(res.arg3, 2);

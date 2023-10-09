@@ -12,7 +12,7 @@
 
 #include <stddef.h>
 
-#include "hf/arch/cpu.h"
+#include "pg/arch/cpu.h"
 
 /**
  * Macros to stringify a parameter, and to allow the results of a macro to be

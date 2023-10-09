@@ -6,13 +6,13 @@
  * https://opensource.org/licenses/BSD-3-Clause.
  */
 
-#include "hf/arch/irq.h"
-#include "hf/arch/vm/interrupts_gicv3.h"
+#include "pg/arch/irq.h"
+#include "pg/arch/vm/interrupts_gicv3.h"
 
-#include "hf/dlog.h"
-#include "hf/std.h"
+#include "pg/dlog.h"
+#include "pg/std.h"
 
-#include "vmapi/hf/call.h"
+#include "vmapi/pg/call.h"
 
 #include "../msr.h"
 #include "gicv3.h"
@@ -210,7 +210,7 @@ TEST(interrupts_ffa_direct_msg, secondary_interrupted_by_sgi)
 	interrupt_send_sgi(1, false, 0, 0, 0, 1);
 
 	/* Send a direct message request. */
-	res = ffa_msg_send_direct_req(HF_PRIMARY_VM_ID, SERVICE_VM1, 1, 0, 0, 0,
+	res = ffa_msg_send_direct_req(PG_PRIMARY_VM_ID, SERVICE_VM1, 1, 0, 0, 0,
 				      0);
 
 	/* The secondary VM has been pre-empted by the PVM. */

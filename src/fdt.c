@@ -6,11 +6,15 @@
  * https://opensource.org/licenses/BSD-3-Clause.
  */
 
-#include "hf/fdt.h"
+#ifndef EXTERNAL_INCLUDE
+#include "pg/fdt.h"
 
 #include <libfdt.h>
 
-#include "hf/static_assert.h"
+#include "pg/static_assert.h"
+
+#include "pg/dlog.h"
+#endif
 
 /** Returns pointer to the FDT buffer. */
 const void *fdt_base(const struct fdt *fdt)
@@ -229,6 +233,20 @@ bool fdt_next_sibling(struct fdt_node *node)
 
 	node->offset = sib_off;
 	return true;
+}
+
+size_t fdt_count_siblings(struct fdt_node *node)
+{
+	size_t i = 0;
+	int sib_off = node->offset;
+
+	do {
+		sib_off = fdt_next_subnode(fdt_base(&node->fdt), sib_off);
+		if (sib_off >= 0)
+			i++;
+	} while (sib_off >= 0);
+
+	return i+1;
 }
 
 /**

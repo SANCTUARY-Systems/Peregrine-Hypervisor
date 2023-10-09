@@ -8,10 +8,10 @@
 
 #include "feature_id.h"
 
-#include "hf/check.h"
-#include "hf/dlog.h"
-#include "hf/types.h"
-#include "hf/vm.h"
+#include "pg/check.h"
+#include "pg/dlog.h"
+#include "pg/types.h"
+#include "pg/vm.h"
 
 #include "msr.h"
 #include "sysregs.h"
@@ -157,7 +157,7 @@ void feature_set_traps(struct vm *vm, struct arch_regs *regs)
 {
 	arch_features_t features = vm->arch.trapped_features;
 
-	if (features & ~HF_FEATURE_ALL) {
+	if (features & ~PG_FEATURE_ALL) {
 		panic("features has undefined bits 0x%x", features);
 	}
 
@@ -174,14 +174,14 @@ void feature_set_traps(struct vm *vm, struct arch_regs *regs)
 	vm->arch.tid3_masks.id_aa64mmfr1_el1 &=
 		~(ID_AA64MMFR1_EL1_VH_MASK << ID_AA64MMFR1_EL1_VH_SHIFT);
 
-	if (features & HF_FEATURE_RAS) {
+	if (features & PG_FEATURE_RAS) {
 		regs->hcr_el2 |= HCR_EL2_TERR;
 		vm->arch.tid3_masks.id_aa64mmfr1_el1 &=
 			~ID_AA64MMFR1_EL1_SPEC_SEI;
 		vm->arch.tid3_masks.id_aa64pfr0_el1 &= ~ID_AA64PFR0_EL1_RAS;
 	}
 
-	if (features & HF_FEATURE_SPE) {
+	if (features & PG_FEATURE_SPE) {
 		/*
 		 * Trap VM accesses to Statistical Profiling Extension (SPE)
 		 * registers.
@@ -197,7 +197,7 @@ void feature_set_traps(struct vm *vm, struct arch_regs *regs)
 		vm->arch.tid3_masks.id_aa64dfr0_el1 &= ~ID_AA64DFR0_EL1_PMS_VER;
 	}
 
-	if (features & HF_FEATURE_DEBUG) {
+	if (features & PG_FEATURE_DEBUG) {
 		regs->lazy.mdcr_el2 |=
 			MDCR_EL2_TDRA | MDCR_EL2_TDOSA | MDCR_EL2_TDA;
 
@@ -205,7 +205,7 @@ void feature_set_traps(struct vm *vm, struct arch_regs *regs)
 			~ID_AA64DFR0_EL1_DOUBLE_LOCK;
 	}
 
-	if (features & HF_FEATURE_TRACE) {
+	if (features & PG_FEATURE_TRACE) {
 		regs->lazy.mdcr_el2 |= MDCR_EL2_TTRF;
 
 		vm->arch.tid3_masks.id_aa64dfr0_el1 &=
@@ -214,19 +214,19 @@ void feature_set_traps(struct vm *vm, struct arch_regs *regs)
 			~ID_AA64DFR0_EL1_TRACE_VER;
 	}
 
-	if (features & HF_FEATURE_PERFMON) {
+	if (features & PG_FEATURE_PERFMON) {
 		regs->lazy.mdcr_el2 |= MDCR_EL2_TPM | MDCR_EL2_TPMCR;
 
 		vm->arch.tid3_masks.id_aa64dfr0_el1 &= ~ID_AA64DFR0_EL1_PMU_VER;
 	}
 
-	if (features & HF_FEATURE_LOR) {
+	if (features & PG_FEATURE_LOR) {
 		regs->hcr_el2 |= HCR_EL2_TLOR;
 
 		vm->arch.tid3_masks.id_aa64mmfr1_el1 &= ~ID_AA64MMFR1_EL1_LO;
 	}
 
-	if (features & HF_FEATURE_PAUTH) {
+	if (features & PG_FEATURE_PAUTH) {
 		/* APK and API bits *enable* trapping when cleared. */
 		regs->hcr_el2 &= ~(HCR_EL2_APK | HCR_EL2_API);
 
@@ -278,7 +278,7 @@ bool feature_id_process_access(struct vcpu *vcpu, uintreg_t esr)
 		break;
 	}
 
-	/* Mask values for features Hafnium might restrict. */
+	/* Mask values for features Peregrine might restrict. */
 	switch (sys_register) {
 	case ID_AA64MMFR1_EL1_ENC:
 		value &= vm->arch.tid3_masks.id_aa64mmfr1_el1;

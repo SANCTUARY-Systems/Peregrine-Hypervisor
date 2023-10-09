@@ -1,0 +1,4 @@
+-*/prebuilts/*
+-*/third_party/*
+-*/third_party/googletest/*
+-*/src/*_test.cc

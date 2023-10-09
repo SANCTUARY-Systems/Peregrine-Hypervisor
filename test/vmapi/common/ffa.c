@@ -6,12 +6,12 @@
  * https://opensource.org/licenses/BSD-3-Clause.
  */
 
-#include "hf/ffa.h"
+#include "pg/ffa.h"
 
-#include "hf/mm.h"
-#include "hf/static_assert.h"
+#include "pg/mm.h"
+#include "pg/static_assert.h"
 
-#include "vmapi/hf/call.h"
+#include "vmapi/pg/call.h"
 
 #include "test/hftest.h"
 #include "test/vmapi/ffa.h"
@@ -21,8 +21,8 @@ static alignas(PAGE_SIZE) uint8_t recv_page[PAGE_SIZE];
 static_assert(sizeof(send_page) == PAGE_SIZE, "Send page is not a page.");
 static_assert(sizeof(recv_page) == PAGE_SIZE, "Recv page is not a page.");
 
-static hf_ipaddr_t send_page_addr = (hf_ipaddr_t)send_page;
-static hf_ipaddr_t recv_page_addr = (hf_ipaddr_t)recv_page;
+static pg_ipaddr_t send_page_addr = (pg_ipaddr_t)send_page;
+static pg_ipaddr_t recv_page_addr = (pg_ipaddr_t)recv_page;
 
 struct mailbox_buffers set_up_mailbox(void)
 {
@@ -60,7 +60,7 @@ ffa_memory_handle_t send_memory_and_retrieve_request(
 
 	/* Send the first fragment of the memory. */
 	remaining_constituent_count = ffa_memory_region_init(
-		tx_buffer, HF_MAILBOX_SIZE, sender, recipient, constituents,
+		tx_buffer, PG_MAILBOX_SIZE, sender, recipient, constituents,
 		constituent_count, 0, flags, send_data_access,
 		send_instruction_access, FFA_MEMORY_NORMAL_MEM,
 		FFA_MEMORY_CACHE_WRITE_BACK, FFA_MEMORY_INNER_SHAREABLE,
@@ -100,7 +100,7 @@ ffa_memory_handle_t send_memory_and_retrieve_request(
 		EXPECT_EQ(ffa_frag_sender(ret), 0);
 
 		remaining_constituent_count = ffa_memory_fragment_init(
-			tx_buffer, HF_MAILBOX_SIZE,
+			tx_buffer, PG_MAILBOX_SIZE,
 			constituents + constituent_count -
 				remaining_constituent_count,
 			remaining_constituent_count, &fragment_length);
@@ -127,7 +127,7 @@ ffa_memory_handle_t send_memory_and_retrieve_request(
 		retrieve_data_access, retrieve_instruction_access,
 		FFA_MEMORY_NORMAL_MEM, FFA_MEMORY_CACHE_WRITE_BACK,
 		FFA_MEMORY_INNER_SHAREABLE);
-	EXPECT_LE(msg_size, HF_MAILBOX_SIZE);
+	EXPECT_LE(msg_size, PG_MAILBOX_SIZE);
 	EXPECT_EQ(ffa_msg_send(sender, recipient, msg_size, 0).func,
 		  FFA_SUCCESS_32);
 
@@ -158,7 +158,7 @@ ffa_memory_handle_t send_memory_and_retrieve_request_force_fragmented(
 
 	/* Send everything except the last constituent in the first fragment. */
 	remaining_constituent_count = ffa_memory_region_init(
-		tx_buffer, HF_MAILBOX_SIZE, sender, recipient, constituents,
+		tx_buffer, PG_MAILBOX_SIZE, sender, recipient, constituents,
 		constituent_count, 0, flags, send_data_access,
 		send_instruction_access, FFA_MEMORY_NORMAL_MEM,
 		FFA_MEMORY_CACHE_WRITE_BACK, FFA_MEMORY_INNER_SHAREABLE,
@@ -191,7 +191,7 @@ ffa_memory_handle_t send_memory_and_retrieve_request_force_fragmented(
 
 	/* Send the last constituent in a separate fragment. */
 	remaining_constituent_count = ffa_memory_fragment_init(
-		tx_buffer, HF_MAILBOX_SIZE,
+		tx_buffer, PG_MAILBOX_SIZE,
 		&constituents[constituent_count - 1], 1, &fragment_length);
 	EXPECT_EQ(remaining_constituent_count, 0);
 	ret = ffa_mem_frag_tx(handle, fragment_length);
@@ -207,7 +207,7 @@ ffa_memory_handle_t send_memory_and_retrieve_request_force_fragmented(
 		retrieve_data_access, retrieve_instruction_access,
 		FFA_MEMORY_NORMAL_MEM, FFA_MEMORY_CACHE_WRITE_BACK,
 		FFA_MEMORY_INNER_SHAREABLE);
-	EXPECT_LE(msg_size, HF_MAILBOX_SIZE);
+	EXPECT_LE(msg_size, PG_MAILBOX_SIZE);
 	EXPECT_EQ(ffa_msg_send(sender, recipient, msg_size, 0).func,
 		  FFA_SUCCESS_32);
 
@@ -246,7 +246,7 @@ ffa_vm_id_t retrieve_memory_from_message(
 	if (handle != NULL) {
 		*handle = handle_;
 	}
-	memcpy_s(send_buf, HF_MAILBOX_SIZE, recv_buf, msg_size);
+	memcpy_s(send_buf, PG_MAILBOX_SIZE, recv_buf, msg_size);
 	ffa_rx_release();
 	ret = ffa_mem_retrieve_req(msg_size, msg_size);
 	EXPECT_EQ(ret.func, FFA_MEM_RETRIEVE_RESP_32);
@@ -256,12 +256,12 @@ ffa_vm_id_t retrieve_memory_from_message(
 		  sizeof(struct ffa_memory_region) +
 			  sizeof(struct ffa_memory_access) +
 			  sizeof(struct ffa_composite_memory_region));
-	EXPECT_LE(fragment_length, HF_MAILBOX_SIZE);
+	EXPECT_LE(fragment_length, PG_MAILBOX_SIZE);
 	EXPECT_LE(fragment_length, total_length);
 	memory_region = (struct ffa_memory_region *)recv_buf;
 	EXPECT_EQ(memory_region->receiver_count, 1);
 	EXPECT_EQ(memory_region->receivers[0].receiver_permissions.receiver,
-		  hf_vm_get_id());
+		  pg_vm_get_id());
 
 	/* Copy into the return buffer. */
 	if (memory_region_ret != NULL) {
@@ -319,7 +319,7 @@ ffa_vm_id_t retrieve_memory_from_message_expect_fail(void *recv_buf,
 	msg_size = ffa_msg_send_size(msg_ret);
 	sender = ffa_sender(msg_ret);
 
-	memcpy_s(send_buf, HF_MAILBOX_SIZE, recv_buf, msg_size);
+	memcpy_s(send_buf, PG_MAILBOX_SIZE, recv_buf, msg_size);
 	ffa_rx_release();
 	ret = ffa_mem_retrieve_req(msg_size, msg_size);
 	EXPECT_FFA_ERROR(ret, expected_error);

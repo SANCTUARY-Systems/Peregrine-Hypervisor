@@ -8,11 +8,11 @@
 
 #include <stdalign.h>
 
-#include "hf/arch/vm/power_mgmt.h"
+#include "pg/arch/vm/power_mgmt.h"
 
-#include "hf/spinlock.h"
+#include "pg/spinlock.h"
 
-#include "vmapi/hf/call.h"
+#include "vmapi/pg/call.h"
 
 #include "test/hftest.h"
 #include "test/vmapi/ffa.h"
@@ -26,9 +26,9 @@
 /**
  * Confirms the primary VM has the primary ID.
  */
-TEST(hf_vm_get_id, primary_has_primary_id)
+TEST(pg_vm_get_id, primary_has_primary_id)
 {
-	EXPECT_EQ(hf_vm_get_id(), HF_PRIMARY_VM_ID);
+	EXPECT_EQ(pg_vm_get_id(), PG_PRIMARY_VM_ID);
 }
 
 /**
@@ -36,7 +36,7 @@ TEST(hf_vm_get_id, primary_has_primary_id)
  */
 TEST(ffa_run, cannot_run_primary)
 {
-	struct ffa_value res = ffa_run(HF_PRIMARY_VM_ID, 0);
+	struct ffa_value res = ffa_run(PG_PRIMARY_VM_ID, 0);
 	EXPECT_FFA_ERROR(res, FFA_INVALID_PARAMETERS);
 }
 
@@ -298,7 +298,7 @@ TEST(ffa, ffa_partition_info)
 	EXPECT_EQ(ret.func, FFA_SUCCESS_32);
 	/* There should only be the primary VM in this test. */
 	EXPECT_EQ(ret.arg2, 1);
-	EXPECT_EQ(partitions[0].vm_id, hf_vm_get_id());
+	EXPECT_EQ(partitions[0].vm_id, pg_vm_get_id());
 	/* The primary should have at least one vCPU. */
 	EXPECT_GE(partitions[0].vcpu_count, 1);
 
@@ -335,8 +335,8 @@ TEST(fp, fp)
 	 * Get some numbers that the compiler can't tell are constants, so it
 	 * can't optimise them away.
 	 */
-	ffa_vm_id_t ai = hf_vm_get_id();
-	ffa_vm_id_t bi = hf_vm_get_id();
+	ffa_vm_id_t ai = pg_vm_get_id();
+	ffa_vm_id_t bi = pg_vm_get_id();
 	double a = ai;
 	double b = bi;
 	double result = a * b * 8.0;

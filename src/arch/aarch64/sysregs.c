@@ -27,7 +27,7 @@ static bool has_ras_support(void)
  * Returns the value for HCR_EL2 for the particular VM.
  * For now, the primary VM has one value and all secondary VMs share a value.
  */
-uintreg_t get_hcr_el2_value(ffa_vm_id_t vm_id)
+uintreg_t get_hcr_el2_value(uint16_t vm_id)
 {
 	uintreg_t hcr_el2_value = 0;
 
@@ -66,7 +66,7 @@ uintreg_t get_hcr_el2_value(ffa_vm_id_t vm_id)
 	hcr_el2_value |= HCR_EL2_APK | HCR_EL2_API;
 
 	/* Baseline values for all secondary VMs. */
-	if (vm_id != HF_PRIMARY_VM_ID) {
+	if (vm_id != PG_PRIMARY_VM_ID) {
 		/*
 		 * Set the minimum shareability domain to barrier instructions
 		 * as inner shareable.
@@ -99,11 +99,8 @@ uintreg_t get_hcr_el2_value(ffa_vm_id_t vm_id)
 		 */
 		hcr_el2_value |= HCR_EL2_IMO | HCR_EL2_FMO;
 
-#if SECURE_WORLD == 0
 		/* Trap wait for event/interrupt instructions. */
 		hcr_el2_value |= HCR_EL2_TWE | HCR_EL2_TWI;
-
-#endif
 	}
 
 	/* Enable VHE, if enabled by build and if HW supports it. */

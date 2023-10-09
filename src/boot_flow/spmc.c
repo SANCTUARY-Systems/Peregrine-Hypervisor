@@ -6,8 +6,8 @@
  * https://opensource.org/licenses/BSD-3-Clause.
  */
 
-#include "hf/plat/boot_flow.h"
-#include "hf/std.h"
+#include "pg/plat/boot_flow.h"
+#include "pg/std.h"
 
 /* Set by arch-specific boot-time hook. */
 uintreg_t plat_boot_flow_fdt_addr;

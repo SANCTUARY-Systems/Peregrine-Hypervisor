@@ -14,7 +14,7 @@ Hafnium has 4 main kinds of tests:
 1.  Arch tests
     *   Architecture-specific unit tests, e.g. MMU setup.
     *   Source under `test/arch`.
-    *   Using our own _hftest_ framework, with `standalone_main.c`.
+    *   Using our own _pgtest_ framework, with `standalone_main.c`.
     *   Build own hypervisor image, run in EL2.
 1.  VM API tests
     *   Exercise hypervisor API from both primary and secondary VMs.
@@ -22,7 +22,7 @@ Hafnium has 4 main kinds of tests:
     *   Tests are run from the primary VM under a normal build of the Hafnium
         hypervisor, possibly communicating with a helper service in one or more
         secondary VMs.
-    *   Using our own _hftest_ framework, with `standalone_main.c` for the
+    *   Using our own _pgtest_ framework, with `standalone_main.c` for the
         primary VM and `service.c` for secondary VMs.
     *   Build own primary and secondary VMs, run in EL1 under actual Hafnium
         image.
@@ -31,7 +31,7 @@ Hafnium has 4 main kinds of tests:
     *   Source under `test/linux`.
     *   Tests are run from userspace (PID 1) under Linux in the primary VM under
         Hafnium, possibly with other secondary VMs.
-    *   Using our own _hftest_ framework, with `linux_main.c`.
+    *   Using our own _pgtest_ framework, with `linux_main.c`.
 
 Host tests run directly on the host machine where they are built, whereas the
 other 3 types can run under an emulator such as QEMU, or on real hardware.
@@ -59,7 +59,7 @@ real hardware.
 
 ### hftest
 
-Having a framework for tests makes them easier to read and write. _hftest_ is a
+Having a framework for tests makes them easier to read and write. _pgtest_ is a
 framework to meet the needs of VM based tests for Hafnium. It consists of:
 
 *   assertions

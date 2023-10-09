@@ -10,7 +10,7 @@
 
 #include <stdint.h>
 
-#include "vmapi/hf/ffa.h"
+#include "vmapi/pg/ffa.h"
 
 static struct ffa_value smc_internal(uint32_t func, uint64_t arg0,
 				     uint64_t arg1, uint64_t arg2,

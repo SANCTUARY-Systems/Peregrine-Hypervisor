@@ -6,13 +6,13 @@
  * https://opensource.org/licenses/BSD-3-Clause.
  */
 
-#include "hf/ffa.h"
+#include "pg/ffa.h"
 
-#include "hf/vcpu.h"
+#include "pg/vcpu.h"
 
 ffa_vm_id_t arch_ffa_spmc_id_get(void)
 {
-	return HF_SPMC_VM_ID;
+	return PG_SPMC_VM_ID;
 }
 
 void plat_ffa_log_init(void)

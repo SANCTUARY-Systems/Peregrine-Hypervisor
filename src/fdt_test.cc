@@ -8,7 +8,7 @@
 
 extern "C" {
 
-#include "hf/fdt.h"
+#include "pg/fdt.h"
 }
 
 #include <gmock/gmock.h>
@@ -74,7 +74,6 @@ const uint8_t test_dtb[] = {
 TEST(fdt, total_size)
 {
 	size_t size;
-
 	EXPECT_TRUE(fdt_size_from_header(&test_dtb[0], &size));
 	EXPECT_THAT(size, Eq(sizeof(test_dtb)));
 }

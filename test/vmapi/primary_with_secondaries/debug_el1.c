@@ -38,7 +38,7 @@ TEST(debug_el1, secondary_basic)
  */
 TEST(debug_el1, primary_basic)
 {
-	EXPECT_EQ(hf_vm_get_id(), HF_PRIMARY_VM_ID);
+	EXPECT_EQ(pg_vm_get_id(), PG_PRIMARY_VM_ID);
 
 	if (CUSTOM_QEMU_BUILD()) {
 		TRY_READ(DBGAUTHSTATUS_EL1);
@@ -86,7 +86,7 @@ TEST(debug_el1, primary_basic)
  */
 TEST(debug_el1, primary_read_write)
 {
-	EXPECT_EQ(hf_vm_get_id(), HF_PRIMARY_VM_ID);
+	EXPECT_EQ(pg_vm_get_id(), PG_PRIMARY_VM_ID);
 
 	CHECK_UPDATE(DBGBCR0_EL1, 0x0, 0x2);
 	CHECK_UPDATE(DBGBVR0_EL1, 0xc4, 0xf0);

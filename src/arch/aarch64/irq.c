@@ -6,7 +6,7 @@
  * https://opensource.org/licenses/BSD-3-Clause.
  */
 
-#include "hf/arch/irq.h"
+#include "pg/arch/irq.h"
 
 void arch_irq_disable(void)
 {

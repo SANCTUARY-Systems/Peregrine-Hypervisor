@@ -6,12 +6,12 @@
  * https://opensource.org/licenses/BSD-3-Clause.
  */
 
-#include "hf/plat/console.h"
+#include "pg/plat/console.h"
 
 #include <stdio.h>
 
-#include "hf/mm.h"
-#include "hf/mpool.h"
+#include "pg/mm.h"
+#include "pg/mpool.h"
 
 void plat_console_init(void)
 {

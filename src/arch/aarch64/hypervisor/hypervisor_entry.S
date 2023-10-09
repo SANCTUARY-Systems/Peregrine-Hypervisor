@@ -6,7 +6,8 @@
  * https://opensource.org/licenses/BSD-3-Clause.
  */
 
-#include "hf/arch/offsets.h"
+#include "pg/arch/offsets.h"
+#include "pg/cpu.h"
 #include "msr.h"
 
 .macro get_core_affinity reg1 reg2
@@ -16,11 +17,15 @@
 	orr \reg1, \reg2, \reg1, lsl #32
 .endm
 
+/** TODO Check Hafnium's MTE support **/
+
 /**
  * Called only on first boot after the image has been relocated and BSS zeroed.
  *
  * It is required that caches be clean and invalid.
  */
+.global __stack_chk_guard
+
 .section .init.image_entry, "ax"
 .global image_entry
 image_entry:
@@ -35,22 +40,14 @@ image_entry:
 	get_core_affinity x30, x29
 	str x30, [x28, CPU_ID]
 
-#if SECURE_WORLD == 1
-
-	/*
-	 * Invalidate the data cache for the whole image.
-	 * This prevents re-use of stale data cache entries from
-	 * prior bootloader stages.
-	 */
-	adrp x0, ORIGIN_ADDRESS
-	adrp x1, image_end
-	sub x1, x1, x0
-	bl arch_cache_data_invalidate_range
-
-#endif
-
 	mov x0, x28
 	bl prepare_for_c
+
+	/* Set stack protector */
+	adrp x19, __stack_chk_guard
+	bl __stack_chk_guard_setup
+	mov x20, x0
+	str x20, [x19, #:lo12:__stack_chk_guard]
 
 	/*
 	 * Call into C to initialize the memory management configuration with
@@ -90,43 +87,6 @@ image_entry:
 .section .text.entry, "ax"
 .global cpu_entry
 cpu_entry:
-#if SECURE_WORLD == 1
-
-	/* Get number of cpus gathered from DT. */
-	adrp x3, cpu_count
-	add x3, x3, :lo12:cpu_count
-	ldr w3, [x3]
-
-	/* Prevent number of CPUs to be higher than supported by platform. */
-	cmp w3, #MAX_CPUS
-	bhi .
-
-	/* x0 points to first cpu in cpus array. */
-	adrp x0, cpus
-	add x0, x0, :lo12:cpus
-
-	/* Get current core affinity. */
-	get_core_affinity x1, x2
-
-	/* Dead stop here if no more cpu. */
-0:	cbz w3, 0b
-
-	sub w3, w3, #1
-
-	/* Get cpu id pointed to by x0 in cpu array. */
-	ldr x2, [x0, CPU_ID]
-
-	/* Exit if current core id matches cpu id. */
-	cmp x1, x2
-	beq 1f
-
-	/* Point to next cpu in cpus array and loop. */
-	add x0, x0, #CPU_SIZE
-	b 0b
-
-1:	/* x0 points to current cpu in cpus array */
-
-#endif
 
 #if BRANCH_PROTECTION
 	/* Expect pointer authentication is implemented. */
@@ -205,10 +165,6 @@ mm_enable:
 
 	msr ttbr0_el2, x1
 	msr vtcr_el2, x2
-
-#if SECURE_WORLD == 1
-	msr MSR_VSTCR_EL2, x6
-#endif
 
 	msr mair_el2, x3
 	msr tcr_el2, x4

@@ -6,11 +6,11 @@
  * https://opensource.org/licenses/BSD-3-Clause.
  */
 
-#include "hf/plat/iommu.h"
+#include "pg/plat/iommu.h"
 
 #define EXTRACT(data, shift, mask) (((data) >> (shift)) & (mask))
 #define ALL_1s(n) ((1ULL << (n)) - 1)
-#define GEN_MASK(MSB, LSB) ((ALL_1s(MSB - LSB + 1)) << (LSB))
+#define GEN_MASK(MSB, LSB) ((ALL_1s((MSB) - (LSB) + 1)) << (LSB))
 #define COMPOSE(value, shift, mask) (((value) & (mask)) << (shift))
 
 /* Offset of SMMUv3 registers */
@@ -328,7 +328,7 @@ struct smmuv3_driver {
 	struct smmuv3_stream_table_config strtab_cfg;
 };
 
-#include "hf/io.h"
+#include "pg/io.h"
 
 static inline uint32_t mmio_read32(void *addr)
 {

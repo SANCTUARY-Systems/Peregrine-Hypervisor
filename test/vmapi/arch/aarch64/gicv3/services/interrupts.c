@@ -6,9 +6,9 @@
  * https://opensource.org/licenses/BSD-3-Clause.
  */
 
-#include "hf/arch/irq.h"
+#include "pg/arch/irq.h"
 
-#include "hf/call.h"
+#include "pg/call.h"
 
 #include "test/hftest.h"
 

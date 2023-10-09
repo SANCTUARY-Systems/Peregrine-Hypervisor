@@ -6,7 +6,7 @@
  * https://opensource.org/licenses/BSD-3-Clause.
  */
 
-#include "hf/arch/cache.h"
+#include "pg/arch/cache.h"
 
 void arch_cache_data_clean_range(vaddr_t start, size_t size)
 {

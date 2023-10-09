@@ -6,18 +6,20 @@
  * https://opensource.org/licenses/BSD-3-Clause.
  */
 
-#include "hf/arch/cpu.h"
+#include "pg/arch/cpu.h"
 
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
-#include "hf/arch/plat/psci.h"
+#include "pg/arch/plat/psci.h"
 
-#include "hf/addr.h"
-#include "hf/ffa.h"
-#include "hf/std.h"
-#include "hf/vm.h"
+#include "pg/addr.h"
+#include "pg/ffa.h"
+#include "pg/plat/interrupts.h"
+#include "pg/std.h"
+#include "pg/vm.h"
+#include "pg/arch/emulator.h"
 
 #include "feature_id.h"
 #include "msr.h"
@@ -37,14 +39,12 @@ __uint128_t pauth_apia_key;
 
 static void lor_disable(void)
 {
-#if SECURE_WORLD == 0
 	/*
 	 * Accesses to LORC_EL1 are undefined if LORegions are not supported.
 	 */
 	if (read_msr(ID_AA64MMFR1_EL1) & ID_AA64MMFR1_EL1_LO) {
 		write_msr(MSR_LORC_EL1, 0);
 	}
-#endif
 }
 
 static void gic_regs_reset(struct arch_regs *r, bool is_primary)
@@ -57,6 +57,7 @@ static void gic_regs_reset(struct arch_regs *r, bool is_primary)
 
 	if (is_primary) {
 		icc_sre_el2 |= 1U << 3; /* Enable EL1 access to ICC_SRE_EL1. */
+		ich_hcr = 1U << 10; /* TC bit */
 	} else {
 		/* Trap EL1 access to GICv3 system registers. */
 		ich_hcr =
@@ -69,8 +70,8 @@ static void gic_regs_reset(struct arch_regs *r, bool is_primary)
 
 void arch_regs_reset(struct vcpu *vcpu)
 {
-	ffa_vm_id_t vm_id = vcpu->vm->id;
-	bool is_primary = vm_id == HF_PRIMARY_VM_ID;
+	uint16_t vm_id = vcpu->vm->id;
+	bool is_primary = vm_id == PG_PRIMARY_VM_ID;
 	cpu_id_t vcpu_id = is_primary ? vcpu->cpu->id : vcpu_index(vcpu);
 
 	paddr_t table = vcpu->vm->ptable.root;
@@ -99,7 +100,8 @@ void arch_regs_reset(struct vcpu *vcpu)
 		}
 	}
 
-	r->hcr_el2 = get_hcr_el2_value(vm_id);
+//	r->hcr_el2 = get_hcr_el2_value(vm_id);
+	r->hcr_el2 = get_hcr_el2_value(PG_PRIMARY_VM_ID); //TODO: distinguish between full VMs (Linux VMs) and FFA VMs
 	r->lazy.cnthctl_el2 = cnthctl;
 	r->lazy.vttbr_el2 = pa_addr(table) | ((uint64_t)vm_id << 48);
 	r->lazy.vmpidr_el2 = vcpu_id;
@@ -110,9 +112,9 @@ void arch_regs_reset(struct vcpu *vcpu)
 
 	/*
 	 * NOTE: It is important that MDSCR_EL1.MDE (bit 15) is set to 0 for
-	 * secondary VMs as long as Hafnium does not support debug register
-	 * access for secondary VMs. If adding Hafnium support for secondary VM
-	 * debug register accesses, then on context switches Hafnium needs to
+	 * secondary VMs as long as Peregrine does not support debug register
+	 * access for secondary VMs. If adding Peregrine support for secondary VM
+	 * debug register accesses, then on context switches Peregrine needs to
 	 * save/restore EL1 debug register state that either might change, or
 	 * that needs to be protected.
 	 */
@@ -124,17 +126,8 @@ void arch_regs_reset(struct vcpu *vcpu)
 	/* Set feature-specific register values. */
 	feature_set_traps(vcpu->vm, r);
 
-#if SECURE_WORLD == 1
-	/*
-	 * TODO: Secure Partitions are granted access to the GIC system
-	 * registers. This is temporary in waiting the GIC para-virtualized
-	 * interface is ready for SP usage. This conditional code here will
-	 * then be removed.
-	 */
-	gic_regs_reset(r, true);
-#else
-	gic_regs_reset(r, is_primary);
-#endif
+	//gic_regs_reset(r, is_primary);
+	gic_regs_reset(r, true); //TODO: distinguish between full VMs (Linux VMs) and FFA VMs
 }
 
 void arch_regs_set_pc_arg(struct arch_regs *r, ipaddr_t pc, uintreg_t arg)
@@ -175,7 +168,7 @@ void arch_cpu_init(struct cpu *c, ipaddr_t entry_point)
 
 	/*
 	 * Linux expects LORegions to be disabled, hence if the current system
-	 * supports them, Hafnium ensures that they are disabled.
+	 * supports them, Peregrine ensures that they are disabled.
 	 */
 	lor_disable();
 
@@ -183,4 +176,11 @@ void arch_cpu_init(struct cpu *c, ipaddr_t entry_point)
 
 	/* Initialize counter-timer virtual offset register to 0. */
 	write_msr(CNTVOFF_EL2, 0);
+
+	if(c->id == 0) {
+		init_gic();
+	}
+	// TODO: add barrier such that all CPU start only after GIC init is finished
+
+	plat_interrupts_controller_hw_init(c);
 }

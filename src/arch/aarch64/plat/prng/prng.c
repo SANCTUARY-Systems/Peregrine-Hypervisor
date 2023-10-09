@@ -6,8 +6,8 @@
  * https://opensource.org/licenses/BSD-3-Clause.
  */
 
-#include "hf/types.h"
-
+#include "pg/types.h"
+#include "pg/arch/plat/prng.h"
 #include "msr.h"
 
 /**

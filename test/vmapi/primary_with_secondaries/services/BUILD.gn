@@ -141,7 +141,7 @@ source_set("interruptible") {
   ]
 }
 
-# Service to check that hf_mailbox_receive can't block when there are pending
+# Service to check that pg_mailbox_receive can't block when there are pending
 # interrupts.
 source_set("receive_block") {
   testonly = true

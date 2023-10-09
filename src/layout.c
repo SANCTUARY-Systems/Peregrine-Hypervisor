@@ -6,9 +6,9 @@
  * https://opensource.org/licenses/BSD-3-Clause.
  */
 
-#include "hf/layout.h"
+#include "pg/layout.h"
 
-#include "hf/std.h"
+#include "pg/std.h"
 
 /**
  * Get the address the .text section begins at.

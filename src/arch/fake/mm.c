@@ -6,9 +6,9 @@
  * https://opensource.org/licenses/BSD-3-Clause.
  */
 
-#include "hf/arch/mm.h"
+#include "pg/arch/mm.h"
 
-#include "hf/mm.h"
+#include "pg/mm.h"
 
 /*
  * The fake architecture uses the mode flags to represent the attributes applied
@@ -74,7 +74,7 @@ bool arch_mm_pte_is_block(pte_t pte, uint8_t level)
 
 bool arch_mm_pte_is_table(pte_t pte, uint8_t level)
 {
-	return (pte << PTE_LEVEL_SHIFT(level)) & PTE_TABLE;
+	return level != 0 && ((pte << PTE_LEVEL_SHIFT(level)) & PTE_TABLE);
 }
 
 paddr_t arch_mm_clear_pa(paddr_t pa)

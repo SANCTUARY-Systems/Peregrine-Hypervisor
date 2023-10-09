@@ -6,10 +6,10 @@
  * https://opensource.org/licenses/BSD-3-Clause.
  */
 
-#include "hf/boot_flow.h"
-#include "hf/dlog.h"
-#include "hf/fdt_handler.h"
-#include "hf/plat/boot_flow.h"
+#include "pg/boot_flow.h"
+#include "pg/dlog.h"
+#include "pg/fdt_handler.h"
+#include "pg/plat/boot_flow.h"
 
 /**
  * Extract the boot parameters from the FDT and the boot-flow driver.

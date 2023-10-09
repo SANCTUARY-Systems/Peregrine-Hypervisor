@@ -13,7 +13,7 @@ declare_args() {
 }
 
 # The hypervisor image.
-hypervisor("hafnium") {
+hypervisor("peregrine") {
   deps = [
     ":layout",
     ":src_not_testable_yet",
@@ -31,13 +31,24 @@ source_set("src_not_testable_yet") {
     "main.c",
   ]
   deps = [
+    ":proprietary",
+    ":error",
     ":src_testable",
     "//project/${project}/${plat_name}",
-    "//src/arch/${plat_arch}/hypervisor:other_world",
+    "//src/arch/${plat_arch}/hypervisor:vm",
     plat_boot_flow,
     plat_console,
     plat_iommu,
   ]
+}
+
+source_set("proprietary") {
+  public_configs = [ "//src/arch/${plat_arch}:arch_config" ]
+  if (defined(plat_proprietary) && plat_proprietary != "") {
+    deps = [
+        plat_proprietary
+      ]
+  }
 }
 
 # One day, this will contain all the hypervisor's source but only once it can
@@ -49,24 +60,25 @@ source_set("src_testable") {
   sources = [
     "api.c",
     "cpu.c",
-    "ffa_memory.c",
+    "manifest_util.c",
     "manifest.c",
     "vcpu.c",
   ]
 
   deps = [
-    ":abort",
+    ":error",
     ":dlog",
     ":fdt",
     ":fdt_handler",
     ":memiter",
     ":mm",
     ":panic",
+    ":uuid",
     ":std",
     ":vm",
     "//src/arch/${plat_arch}:arch",
-    "//src/arch/${plat_arch}/hypervisor",
-    "//src/arch/${plat_arch}/hypervisor:other_world",
+    "//src/arch/${plat_arch}:src_testable",
+    "//src/arch/${plat_arch}/hypervisor:vm",
     "//vmlib",
     plat_boot_flow,
     plat_console,
@@ -84,6 +96,7 @@ source_set("mm") {
   sources = [
     "mm.c",
     "mpool.c",
+    "pma.c"
   ]
 }
 
@@ -101,7 +114,8 @@ source_set("std") {
   ]
 
   deps = [
-    "//src/arch/${plat_arch}:std",
+    #"//src/arch/${plat_arch}:std",
+    "//src/arch/aarch64:std",
   ]
 }
 
@@ -144,8 +158,7 @@ source_set("fdt_handler") {
   ]
   deps = [
     ":dlog",
-    ":fdt",
-    ":fdt_patch",
+    ":fdt"
   ]
 }
 
@@ -158,17 +171,6 @@ source_set("fdt") {
   deps = [
     ":memiter",
     ":string",
-    "//third_party/dtc:libfdt",
-  ]
-}
-
-source_set("fdt_patch") {
-  sources = [
-    "fdt_patch.c",
-  ]
-  deps = [
-    ":dlog",
-    ":fdt",
     "//third_party/dtc:libfdt",
   ]
 }
@@ -191,23 +193,53 @@ source_set("abort") {
   ]
 }
 
+source_set("uuid") {
+  sources = [
+    "uuid.c",
+  ]
+}
+
+source_set("error") {
+  sources = [
+    "error.c",
+  ]
+  deps = [
+    ":dlog",
+    ":abort",
+  ]
+}
+
+source_set("src_unit_tests") {
+  testonly = true
+  public_configs = [ "//src/arch/${plat_arch}:arch_config" ]
+  
+  if (defined(plat_proprietary_unit) && plat_proprietary_unit != "") {
+    deps = [plat_proprietary_unit]
+  }
+}
+
 executable("unit_tests") {
   testonly = true
   sources = [
     "fdt_handler_test.cc",
     "fdt_test.cc",
-    "manifest_test.cc",
     "mm_test.cc",
     "mpool_test.cc",
+    "pma_test.cc",
     "string_test.cc",
-    "vm_test.cc",
+    "std_test.cc",
+    "uuid_test.cc",
+    "vm_test.cc"
   ]
+
   sources += [ "layout_fake.c" ]
   cflags_cc = [
     "-Wno-c99-extensions",
     "-Wno-nested-anon-types",
   ]
+  ldflags = [ "-flto" ]
   deps = [
+    ":src_unit_tests",
     ":src_testable",
     "//third_party/googletest:gtest_main",
   ]

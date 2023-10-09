@@ -6,12 +6,12 @@
  * https://opensource.org/licenses/BSD-3-Clause.
  */
 
-#include "hf/call.h"
+#include "pg/call.h"
 
-#include "hf/ffa.h"
-#include "hf/types.h"
+#include "pg/ffa.h"
+#include "pg/types.h"
 
-int64_t hf_call(uint64_t arg0, uint64_t arg1, uint64_t arg2, uint64_t arg3)
+int64_t pg_call(uint64_t arg0, uint64_t arg1, uint64_t arg2, uint64_t arg3)
 {
 	register uint64_t r0 __asm__("x0") = arg0;
 	register uint64_t r1 __asm__("x1") = arg1;

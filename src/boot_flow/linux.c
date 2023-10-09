@@ -6,32 +6,37 @@
  * https://opensource.org/licenses/BSD-3-Clause.
  */
 
-#include "hf/check.h"
-#include "hf/cpio.h"
-#include "hf/dlog.h"
-#include "hf/fdt_handler.h"
-#include "hf/fdt_patch.h"
-#include "hf/plat/boot_flow.h"
-#include "hf/std.h"
+#include "pg/check.h"
+#include "pg/cpio.h"
+#include "pg/dlog.h"
+#include "pg/fdt_handler.h"
+#include "pg/plat/boot_flow.h"
+#include "pg/std.h"
+#include "pg/layout.h"
+#include "pg/load.h"
+#include "pg/pma.h"
 
 /* Set by arch-specific boot-time hook. */
 uintreg_t plat_boot_flow_fdt_addr;
 
 /**
- * Returns the physical address of board FDT. This was passed to Hafnium in the
+ * Returns the physical address of board FDT. This was passed to Peregrine in the
  * first kernel arg by the boot loader.
  */
 paddr_t plat_boot_flow_get_fdt_addr(void)
 {
+	dlog_debug("plat_boot_flow_fdt_addr: %#x\n", plat_boot_flow_fdt_addr);
 	return pa_init((uintpaddr_t)plat_boot_flow_fdt_addr);
 }
 
 /**
  * When handing over to the primary, give it the same FDT address that was given
- * to Hafnium. The FDT may have been modified during Hafnium init.
+ * to Peregrine. The FDT may have been modified during Peregrine init.
  */
 uintreg_t plat_boot_flow_get_kernel_arg(void)
 {
+
+	dlog_debug("plat_boot_flow_fdt_addr: %#x\n", plat_boot_flow_fdt_addr);
 	return plat_boot_flow_fdt_addr;
 }
 
@@ -51,7 +56,7 @@ bool plat_boot_flow_update(struct mm_stage1_locked stage1_locked,
 {
 	struct memiter primary_initrd;
 	const struct string *filename =
-		&manifest->vm[HF_PRIMARY_VM_INDEX].primary.ramdisk_filename;
+		&manifest->vm[PG_PRIMARY_VM_INDEX].ramdisk_filename;
 
 	if (string_is_empty(filename)) {
 		memiter_init(&primary_initrd, NULL, 0);
@@ -61,9 +66,9 @@ bool plat_boot_flow_update(struct mm_stage1_locked stage1_locked,
 		return false;
 	}
 
-	update->initrd_begin = pa_from_va(va_from_ptr(primary_initrd.next));
-	update->initrd_end = pa_from_va(va_from_ptr(primary_initrd.limit));
+	//TODO: only use this ramdisk memory rang if the ramdisk was loaded to it...
+	update->initrd_begin.pa = pa_addr(manifest->vm[PG_PRIMARY_VM_INDEX].ramdisk_addr_pa);
+	update->initrd_end.pa = pa_addr(manifest->vm[PG_PRIMARY_VM_INDEX].ramdisk_addr_pa) + manifest->vm[PG_PRIMARY_VM_INDEX].ramdisk_size;
 
-	return fdt_patch(stage1_locked, plat_boot_flow_get_fdt_addr(), update,
-			 ppool);
+	return true;
 }

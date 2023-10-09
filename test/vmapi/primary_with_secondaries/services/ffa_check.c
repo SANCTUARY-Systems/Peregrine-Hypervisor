@@ -6,10 +6,10 @@
  * https://opensource.org/licenses/BSD-3-Clause.
  */
 
-#include "hf/ffa.h"
-#include "hf/std.h"
+#include "pg/ffa.h"
+#include "pg/std.h"
 
-#include "vmapi/hf/call.h"
+#include "vmapi/pg/call.h"
 
 #include "primary_with_secondary.h"
 #include "test/hftest.h"
@@ -27,8 +27,8 @@ TEST_SERVICE(ffa_check)
 
 	/* Ensure message header has all fields correctly set. */
 	EXPECT_EQ(ffa_msg_send_size(ret), sizeof(message));
-	EXPECT_EQ(ffa_receiver(ret), hf_vm_get_id());
-	EXPECT_EQ(ffa_sender(ret), HF_PRIMARY_VM_ID);
+	EXPECT_EQ(ffa_receiver(ret), pg_vm_get_id());
+	EXPECT_EQ(ffa_sender(ret), PG_PRIMARY_VM_ID);
 
 	/* Ensure that the payload was correctly transmitted. */
 	EXPECT_EQ(memcmp(recv_buf, message, sizeof(message)), 0);
@@ -113,7 +113,7 @@ TEST_SERVICE(ffa_disallowed_direct_msg_req)
 	struct ffa_value args;
 	struct ffa_value ret;
 
-	ret = ffa_msg_send_direct_req(SERVICE_VM1, HF_PRIMARY_VM_ID, 0, 0, 0, 0,
+	ret = ffa_msg_send_direct_req(SERVICE_VM1, PG_PRIMARY_VM_ID, 0, 0, 0, 0,
 				      0);
 	EXPECT_FFA_ERROR(ret, FFA_INVALID_PARAMETERS);
 
@@ -137,7 +137,7 @@ TEST_SERVICE(ffa_disallowed_direct_msg_resp)
 	struct ffa_value args;
 	struct ffa_value ret;
 
-	ret = ffa_msg_send_direct_resp(SERVICE_VM1, HF_PRIMARY_VM_ID, 0, 0, 0,
+	ret = ffa_msg_send_direct_resp(SERVICE_VM1, PG_PRIMARY_VM_ID, 0, 0, 0,
 				       0, 0);
 	EXPECT_FFA_ERROR(ret, FFA_DENIED);
 

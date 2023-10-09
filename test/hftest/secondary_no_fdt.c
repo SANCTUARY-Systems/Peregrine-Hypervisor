@@ -9,18 +9,16 @@
 #include <stdalign.h>
 #include <stdint.h>
 
-#include "hf/ffa.h"
-#include "hf/mm.h"
-#include "hf/std.h"
+#include "pg/ffa.h"
+#include "pg/mm.h"
+#include "pg/std.h"
 
-#include "vmapi/hf/call.h"
+#include "vmapi/pg/call.h"
 
 #include "test/abort.h"
 #include "test/hftest.h"
 
 alignas(4096) uint8_t kstack[4096];
-
-HFTEST_ENABLE();
 
 extern struct hftest_test hftest_begin[];
 extern struct hftest_test hftest_end[];

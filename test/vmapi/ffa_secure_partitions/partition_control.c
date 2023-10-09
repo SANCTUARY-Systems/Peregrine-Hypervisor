@@ -6,23 +6,14 @@
  * https://opensource.org/licenses/BSD-3-Clause.
  */
 
-#include "hf/dlog.h"
-#include "hf/ffa.h"
+#include "pg/dlog.h"
+#include "pg/ffa.h"
 
-#include "vmapi/hf/call.h"
+#include "vmapi/pg/call.h"
 
 #include "test/hftest.h"
 
-/*
- * Using the SECURE_WORLD macro below should be temporary. To comply
- * with uses of this test source code.
- * TODO: Place code dependent on SECURE_WORLD macro in a arch specific file.
- */
-#if SECURE_WORLD == 1
-#define RECEIVER_ID 0x8002
-#else
 #define RECEIVER_ID 0x8001
-#endif
 
 /**
  * Communicates with partition via direct messaging to validate functioning of
@@ -33,9 +24,9 @@ TEST(ffa_partition_to_partition_comm, dir_msg_req)
 	const uint32_t msg[] = {0x00001111, 0x22223333, 0x44445555, 0x66667777,
 				0x88889999};
 	struct ffa_value res;
-	ffa_vm_id_t own_id = hf_vm_get_id();
+	ffa_vm_id_t own_id = pg_vm_get_id();
 
-	dlog_verbose("HF_VM_ID_BASE: %x\n", HF_VM_ID_BASE);
+	dlog_verbose("PG_VM_ID_BASE: %x\n", PG_VM_ID_BASE);
 
 	res = ffa_msg_send_direct_req(own_id, RECEIVER_ID, msg[0], msg[1],
 				      msg[2], msg[3], msg[4]);

@@ -8,9 +8,9 @@
 
 #include <stdint.h>
 
-#include "hf/std.h"
+#include "pg/std.h"
 
-#include "vmapi/hf/call.h"
+#include "vmapi/pg/call.h"
 
 #include "primary_with_secondary.h"
 #include "test/hftest.h"
@@ -41,7 +41,7 @@ TEST(interrupts, interrupt_self)
 	/* Set the message, echo it and wait for a response. */
 	memcpy_s(mb.send, FFA_MSG_PAYLOAD_MAX, message, sizeof(message));
 	EXPECT_EQ(
-		ffa_msg_send(HF_PRIMARY_VM_ID, SERVICE_VM1, sizeof(message), 0)
+		ffa_msg_send(PG_PRIMARY_VM_ID, SERVICE_VM1, sizeof(message), 0)
 			.func,
 		FFA_SUCCESS_32);
 	run_res = ffa_run(SERVICE_VM1, 0);
@@ -70,7 +70,7 @@ TEST(interrupts, inject_interrupt_twice)
 	EXPECT_EQ(run_res.arg2, FFA_SLEEP_INDEFINITE);
 
 	/* Inject the interrupt and wait for a message. */
-	hf_interrupt_inject(SERVICE_VM1, 0, EXTERNAL_INTERRUPT_ID_A);
+	pg_interrupt_inject(SERVICE_VM1, 0, EXTERNAL_INTERRUPT_ID_A);
 	run_res = ffa_run(SERVICE_VM1, 0);
 	EXPECT_EQ(run_res.func, FFA_MSG_SEND_32);
 	EXPECT_EQ(ffa_msg_send_size(run_res), sizeof(expected_response));
@@ -79,7 +79,7 @@ TEST(interrupts, inject_interrupt_twice)
 	EXPECT_EQ(ffa_rx_release().func, FFA_SUCCESS_32);
 
 	/* Inject the interrupt again, and wait for the same message. */
-	hf_interrupt_inject(SERVICE_VM1, 0, EXTERNAL_INTERRUPT_ID_A);
+	pg_interrupt_inject(SERVICE_VM1, 0, EXTERNAL_INTERRUPT_ID_A);
 	run_res = ffa_run(SERVICE_VM1, 0);
 	EXPECT_EQ(run_res.func, FFA_MSG_SEND_32);
 	EXPECT_EQ(ffa_msg_send_size(run_res), sizeof(expected_response));
@@ -106,7 +106,7 @@ TEST(interrupts, inject_two_interrupts)
 	EXPECT_EQ(run_res.arg2, FFA_SLEEP_INDEFINITE);
 
 	/* Inject the interrupt and wait for a message. */
-	hf_interrupt_inject(SERVICE_VM1, 0, EXTERNAL_INTERRUPT_ID_A);
+	pg_interrupt_inject(SERVICE_VM1, 0, EXTERNAL_INTERRUPT_ID_A);
 	run_res = ffa_run(SERVICE_VM1, 0);
 	EXPECT_EQ(run_res.func, FFA_MSG_SEND_32);
 	EXPECT_EQ(ffa_msg_send_size(run_res), sizeof(expected_response));
@@ -115,7 +115,7 @@ TEST(interrupts, inject_two_interrupts)
 	EXPECT_EQ(ffa_rx_release().func, FFA_SUCCESS_32);
 
 	/* Inject a different interrupt and wait for a different message. */
-	hf_interrupt_inject(SERVICE_VM1, 0, EXTERNAL_INTERRUPT_ID_B);
+	pg_interrupt_inject(SERVICE_VM1, 0, EXTERNAL_INTERRUPT_ID_B);
 	run_res = ffa_run(SERVICE_VM1, 0);
 	EXPECT_EQ(run_res.func, FFA_MSG_SEND_32);
 	EXPECT_EQ(ffa_msg_send_size(run_res), sizeof(expected_response_2));
@@ -145,7 +145,7 @@ TEST(interrupts, inject_interrupt_message)
 	EXPECT_EQ(run_res.arg2, FFA_SLEEP_INDEFINITE);
 
 	/* Inject the interrupt and wait for a message. */
-	hf_interrupt_inject(SERVICE_VM1, 0, EXTERNAL_INTERRUPT_ID_A);
+	pg_interrupt_inject(SERVICE_VM1, 0, EXTERNAL_INTERRUPT_ID_A);
 	run_res = ffa_run(SERVICE_VM1, 0);
 	EXPECT_EQ(run_res.func, FFA_MSG_SEND_32);
 	EXPECT_EQ(ffa_msg_send_size(run_res), sizeof(expected_response));
@@ -160,7 +160,7 @@ TEST(interrupts, inject_interrupt_message)
 	/* Now send a message to the secondary. */
 	memcpy_s(mb.send, FFA_MSG_PAYLOAD_MAX, message, sizeof(message));
 	EXPECT_EQ(
-		ffa_msg_send(HF_PRIMARY_VM_ID, SERVICE_VM1, sizeof(message), 0)
+		ffa_msg_send(PG_PRIMARY_VM_ID, SERVICE_VM1, sizeof(message), 0)
 			.func,
 		FFA_SUCCESS_32);
 	run_res = ffa_run(SERVICE_VM1, 0);
@@ -187,7 +187,7 @@ TEST(interrupts, inject_interrupt_disabled)
 	SERVICE_SELECT(SERVICE_VM1, "interruptible", mb.send);
 
 	/* Inject the interrupt and expect not to get a message. */
-	hf_interrupt_inject(SERVICE_VM1, 0, EXTERNAL_INTERRUPT_ID_C);
+	pg_interrupt_inject(SERVICE_VM1, 0, EXTERNAL_INTERRUPT_ID_C);
 	run_res = ffa_run(SERVICE_VM1, 0);
 	EXPECT_EQ(run_res.func, FFA_MSG_WAIT_32);
 	EXPECT_EQ(run_res.arg2, FFA_SLEEP_INDEFINITE);
@@ -198,7 +198,7 @@ TEST(interrupts, inject_interrupt_disabled)
 	 */
 	memcpy_s(mb.send, FFA_MSG_PAYLOAD_MAX, message, sizeof(message));
 	EXPECT_EQ(
-		ffa_msg_send(HF_PRIMARY_VM_ID, SERVICE_VM1, sizeof(message), 0)
+		ffa_msg_send(PG_PRIMARY_VM_ID, SERVICE_VM1, sizeof(message), 0)
 			.func,
 		FFA_SUCCESS_32);
 	run_res = ffa_run(SERVICE_VM1, 0);
@@ -211,7 +211,7 @@ TEST(interrupts, inject_interrupt_disabled)
 
 /**
  * If a secondary VM has an enabled and pending interrupt, even if interrupts
- * are disabled globally via PSTATE, then hf_mailbox_receive should not block
+ * are disabled globally via PSTATE, then pg_mailbox_receive should not block
  * even if `block` is true.
  */
 TEST(interrupts, pending_interrupt_no_blocking_receive)
@@ -227,7 +227,7 @@ TEST(interrupts, pending_interrupt_no_blocking_receive)
 	 * globally, enable the specific interrupt, and then send us a message
 	 * back after failing to receive a message a few times.
 	 */
-	hf_interrupt_inject(SERVICE_VM1, 0, EXTERNAL_INTERRUPT_ID_A);
+	pg_interrupt_inject(SERVICE_VM1, 0, EXTERNAL_INTERRUPT_ID_A);
 	run_res = ffa_run(SERVICE_VM1, 0);
 	EXPECT_EQ(run_res.func, FFA_MSG_SEND_32);
 	EXPECT_EQ(ffa_msg_send_size(run_res), sizeof(expected_response));
@@ -254,7 +254,7 @@ TEST(interrupts, pending_interrupt_wfi_not_trapped)
 	 * globally, enable the specific interrupt, and then send us a message
 	 * back after running WFI a few times.
 	 */
-	hf_interrupt_inject(SERVICE_VM1, 0, EXTERNAL_INTERRUPT_ID_A);
+	pg_interrupt_inject(SERVICE_VM1, 0, EXTERNAL_INTERRUPT_ID_A);
 	run_res = ffa_run(SERVICE_VM1, 0);
 	EXPECT_EQ(run_res.func, FFA_MSG_SEND_32);
 	EXPECT_EQ(ffa_msg_send_size(run_res), sizeof(expected_response));
@@ -281,10 +281,10 @@ TEST(interrupts, deliver_interrupt_and_message)
 
 	memcpy_s(mb.send, FFA_MSG_PAYLOAD_MAX, message, sizeof(message));
 	EXPECT_EQ(
-		ffa_msg_send(HF_PRIMARY_VM_ID, SERVICE_VM1, sizeof(message), 0)
+		ffa_msg_send(PG_PRIMARY_VM_ID, SERVICE_VM1, sizeof(message), 0)
 			.func,
 		FFA_SUCCESS_32);
-	hf_interrupt_inject(SERVICE_VM1, 0, EXTERNAL_INTERRUPT_ID_A);
+	pg_interrupt_inject(SERVICE_VM1, 0, EXTERNAL_INTERRUPT_ID_A);
 	run_res = ffa_run(SERVICE_VM1, 0);
 	EXPECT_EQ(run_res.func, FFA_MSG_SEND_32);
 	EXPECT_EQ(ffa_msg_send_size(run_res), sizeof(message));
@@ -310,19 +310,19 @@ TEST(interrupts_direct_msg, direct_msg_request_interrupted)
 	EXPECT_EQ(res.arg2, FFA_SLEEP_INDEFINITE);
 
 	/* Send an initial direct message request */
-	res = ffa_msg_send_direct_req(HF_PRIMARY_VM_ID, SERVICE_VM1, 1, 0, 0, 0,
+	res = ffa_msg_send_direct_req(PG_PRIMARY_VM_ID, SERVICE_VM1, 1, 0, 0, 0,
 				      0);
 	EXPECT_EQ(res.func, FFA_MSG_SEND_DIRECT_RESP_32);
 	EXPECT_EQ(res.arg3, 2);
 
 	/* Inject an interrupt to the secondary VM */
-	hf_interrupt_inject(SERVICE_VM1, 0, EXTERNAL_INTERRUPT_ID_A);
+	pg_interrupt_inject(SERVICE_VM1, 0, EXTERNAL_INTERRUPT_ID_A);
 
 	/* Let the secondary VM run */
 	res = ffa_run(SERVICE_VM1, 0);
 	EXPECT_EQ(res.func, FFA_MSG_WAIT_32);
 
-	res = ffa_msg_send_direct_req(HF_PRIMARY_VM_ID, SERVICE_VM1, 3, 0, 0, 0,
+	res = ffa_msg_send_direct_req(PG_PRIMARY_VM_ID, SERVICE_VM1, 3, 0, 0, 0,
 				      0);
 	EXPECT_EQ(res.func, FFA_MSG_SEND_DIRECT_RESP_32);
 	EXPECT_EQ(res.arg3, 4);
@@ -347,14 +347,14 @@ TEST(interrupts_direct_msg, direct_msg_request_with_interrupt)
 	EXPECT_EQ(res.arg2, FFA_SLEEP_INDEFINITE);
 
 	/* Inject an interrupt to the secondary VM */
-	hf_interrupt_inject(SERVICE_VM1, 0, EXTERNAL_INTERRUPT_ID_A);
+	pg_interrupt_inject(SERVICE_VM1, 0, EXTERNAL_INTERRUPT_ID_A);
 
 	/*
 	 * Send a direct message request. Expect the secondary VM to receive
 	 * the message and the interrupt together. The secondary VM then
 	 * replies with a direct message response.
 	 */
-	res = ffa_msg_send_direct_req(HF_PRIMARY_VM_ID, SERVICE_VM1, 1, 0, 0, 0,
+	res = ffa_msg_send_direct_req(PG_PRIMARY_VM_ID, SERVICE_VM1, 1, 0, 0, 0,
 				      0);
 	EXPECT_EQ(res.func, FFA_MSG_SEND_DIRECT_RESP_32);
 	EXPECT_EQ(res.arg3, 2);

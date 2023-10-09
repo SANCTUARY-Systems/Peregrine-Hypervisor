@@ -6,10 +6,10 @@
  * https://opensource.org/licenses/BSD-3-Clause.
  */
 
-#include "hf/arch/cpu.h"
+#include "pg/arch/cpu.h"
 
-#include "hf/cpu.h"
-#include "hf/ffa.h"
+#include "pg/cpu.h"
+#include "pg/ffa.h"
 
 void arch_irq_disable(void)
 {

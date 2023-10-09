@@ -6,18 +6,61 @@
 
 import("//build/toolchain/platform.gni")
 
+# default to DEBUG configuration
+optimization_mode = "-O0"
+
+debug_mode = "-g"
+
+release_mode = 0
+
+measured_boot = 0
+
+measured_boot_env = getenv("MEASURED_BOOT")
+
+if (measured_boot_env == "y") {
+  measured_boot = 1
+}
+
+log_level = getenv("LOG_LEVEL")
+
+max_cpus = 1
+max_cpus_in = getenv("MAX_CPUS")
+
+if (max_cpus_in != "") {
+  max_cpus = max_cpus_in
+}
+
+max_vms = 1
+max_vms_in = getenv("MAX_VMS")
+
+if (max_vms_in != "") {
+  max_vms = max_vms_in
+}
+
+# set a default log level if it isn't specified
+if (log_level == "") {
+  log_level = "LOG_LEVEL_INFO"
+}
+    
+# check if RELEASE configuration and adapt variables
+target_config = getenv("TARGET_CONFIG")
+
+if (target_config == "RELEASE") {
+    optimization_mode = "-O2"
+    debug_mode = ""
+    release_mode = 1
+}
+
 # Default language and error reporting configuration.
 config("compiler_defaults") {
   cflags = [
-    "-g",
+    debug_mode,
     "-Wall",
-    "-O2",
+    optimization_mode,
 
-    #"-Wextra",
-    "-Wpedantic",
-    "-Werror",
-
-    "-fstack-protector-all",
+    "-flto",
+    "-fsanitize=cfi-icall",
+    "-fstack-protector-all"
   ]
 
   cflags_c = [ "-std=c11" ]
@@ -31,15 +74,18 @@ config("platform") {
     "//inc",
     "//inc/vmapi",
     "//src/arch/${plat_arch}/inc",
-
     # Auto-generated headers using the 'offset_size_header' build rule.
     "${root_gen_dir}/offset_size_header",
+    "//src/proprietary/inc"
   ]
 
   defines = [
     "HEAP_PAGES=${plat_heap_pages}",
-    "MAX_CPUS=${plat_max_cpus}",
-    "MAX_VMS=${plat_max_vms}",
+    "HOST_TESTING_MODE=${plat_test_mode}",
+    "MAX_CPUS=${max_cpus}",
+    "MAX_VMS=${max_vms}",
     "LOG_LEVEL=${log_level}",
+    "RELEASE=${release_mode}",
+    "MEASURED_BOOT=${measured_boot}"
   ]
 }

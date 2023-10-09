@@ -6,18 +6,18 @@
  * https://opensource.org/licenses/BSD-3-Clause.
  */
 
-#include "hf/arch/vm/timer.h"
+#include "pg/arch/vm/timer.h"
 
-#include "hf/arch/irq.h"
-#include "hf/arch/vm/events.h"
-#include "hf/arch/vm/interrupts.h"
-#include "hf/arch/vm/interrupts_gicv3.h"
+#include "pg/arch/irq.h"
+#include "pg/arch/vm/events.h"
+#include "pg/arch/vm/interrupts.h"
+#include "pg/arch/vm/interrupts_gicv3.h"
 
-#include "hf/dlog.h"
-#include "hf/ffa.h"
-#include "hf/std.h"
+#include "pg/dlog.h"
+#include "pg/ffa.h"
+#include "pg/std.h"
 
-#include "vmapi/hf/call.h"
+#include "vmapi/pg/call.h"
 
 #include "common.h"
 #include "test/hftest.h"
@@ -32,17 +32,17 @@ static volatile bool timer_fired = false;
 
 static void irq_current(void)
 {
-	uint32_t interrupt_id = hf_interrupt_get();
+	uint32_t interrupt_id = pg_interrupt_get();
 	char buffer[] = "Got IRQ xx.";
 	int size = sizeof(buffer);
 	dlog("secondary IRQ %d from current\n", interrupt_id);
-	if (interrupt_id == HF_VIRTUAL_TIMER_INTID) {
+	if (interrupt_id == PG_VIRTUAL_TIMER_INTID) {
 		timer_fired = true;
 	}
 	buffer[8] = '0' + interrupt_id / 10;
 	buffer[9] = '0' + interrupt_id % 10;
 	memcpy_s(SERVICE_SEND_BUFFER(), FFA_MSG_PAYLOAD_MAX, buffer, size);
-	ffa_msg_send(hf_vm_get_id(), HF_PRIMARY_VM_ID, size, 0);
+	ffa_msg_send(pg_vm_get_id(), PG_PRIMARY_VM_ID, size, 0);
 	dlog("secondary IRQ %d ended\n", interrupt_id);
 	event_send_local();
 }
@@ -50,7 +50,7 @@ static void irq_current(void)
 TEST_SERVICE(timer)
 {
 	exception_setup(irq_current, NULL);
-	hf_interrupt_enable(HF_VIRTUAL_TIMER_INTID, true, INTERRUPT_TYPE_IRQ);
+	pg_interrupt_enable(PG_VIRTUAL_TIMER_INTID, true, INTERRUPT_TYPE_IRQ);
 	arch_irq_enable();
 
 	for (;;) {
@@ -62,7 +62,7 @@ TEST_SERVICE(timer)
 		uint32_t ticks;
 		struct ffa_value ret = mailbox_receive_retry();
 
-		if (ffa_sender(ret) != HF_PRIMARY_VM_ID ||
+		if (ffa_sender(ret) != PG_PRIMARY_VM_ID ||
 		    ffa_msg_send_size(ret) != sizeof("**** xxxxxxx")) {
 			FAIL("Got unexpected message from VM %d, size %d.\n",
 			     ffa_sender(ret), ffa_msg_send_size(ret));
@@ -130,7 +130,7 @@ TEST_SERVICE(timer_ffa_direct_msg)
 	struct ffa_value res;
 
 	exception_setup(irq_current, NULL);
-	hf_interrupt_enable(HF_VIRTUAL_TIMER_INTID, true, INTERRUPT_TYPE_IRQ);
+	pg_interrupt_enable(PG_VIRTUAL_TIMER_INTID, true, INTERRUPT_TYPE_IRQ);
 	arch_irq_enable();
 
 	res = ffa_msg_wait();

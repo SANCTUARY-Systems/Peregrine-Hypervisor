@@ -6,14 +6,14 @@
  * https://opensource.org/licenses/BSD-3-Clause.
  */
 
-#include "hf/arch/irq.h"
-#include "hf/arch/vm/interrupts_gicv3.h"
+#include "pg/arch/irq.h"
+#include "pg/arch/vm/interrupts_gicv3.h"
 
-#include "hf/dlog.h"
-#include "hf/ffa.h"
-#include "hf/std.h"
+#include "pg/dlog.h"
+#include "pg/ffa.h"
+#include "pg/std.h"
 
-#include "vmapi/hf/call.h"
+#include "vmapi/pg/call.h"
 
 #include "gicv3.h"
 #include "msr.h"
@@ -89,7 +89,7 @@ TEST(busy_secondary, virtual_timer)
 	dlog("Telling secondary to loop.\n");
 	memcpy_s(send_buffer, FFA_MSG_PAYLOAD_MAX, message, sizeof(message));
 	EXPECT_EQ(
-		ffa_msg_send(HF_PRIMARY_VM_ID, SERVICE_VM1, sizeof(message), 0)
+		ffa_msg_send(PG_PRIMARY_VM_ID, SERVICE_VM1, sizeof(message), 0)
 			.func,
 		FFA_SUCCESS_32);
 
@@ -148,7 +148,7 @@ TEST(busy_secondary, physical_timer)
 	dlog("Telling secondary to loop.\n");
 	memcpy_s(send_buffer, FFA_MSG_PAYLOAD_MAX, message, sizeof(message));
 	EXPECT_EQ(
-		ffa_msg_send(HF_PRIMARY_VM_ID, SERVICE_VM1, sizeof(message), 0)
+		ffa_msg_send(PG_PRIMARY_VM_ID, SERVICE_VM1, sizeof(message), 0)
 			.func,
 		FFA_SUCCESS_32);
 
@@ -216,7 +216,7 @@ TEST(busy_secondary_direct_message, direct_msg_virtual_timer)
 	write_msr(CNTV_CTL_EL0, 0x00000001);
 
 	/* Let secondary start looping. */
-	res = ffa_msg_send_direct_req(HF_PRIMARY_VM_ID, SERVICE_VM1, 0, 0, 0, 0,
+	res = ffa_msg_send_direct_req(PG_PRIMARY_VM_ID, SERVICE_VM1, 0, 0, 0, 0,
 				      0);
 	EXPECT_EQ(res.func, FFA_INTERRUPT_32);
 
