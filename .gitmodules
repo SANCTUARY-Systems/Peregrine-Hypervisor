@@ -4,7 +4,7 @@
 	shallow = true
 [submodule "third_party/dtc"]
 	path = third_party/dtc
-	url = https://git.trustedfirmware.org/hafnium/third_party/dtc
+	url = https://github.com/SANCTUARY-Systems/dtc.git
 	shallow = true
 [submodule "third_party/googletest"]
 	path = third_party/googletest
