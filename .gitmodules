@@ -1,6 +1,6 @@
 [submodule "prebuilts"]
 	path = prebuilts
-	url = https://sgit.trust.informatik.tu-darmstadt.de:13196/sanctuary/hypervisor/hafnium-prebuilts.git
+	url = https://github.com/SANCTUARY-Systems/Peregrine-Prebuilts.git
 	shallow = true
 [submodule "third_party/dtc"]
 	path = third_party/dtc
@@ -16,4 +16,4 @@
 	shallow = true
 [submodule "project"]
 	path = project
-	url = https://sgit.trust.informatik.tu-darmstadt.de:13196/sanctuary/peregrine/peregrine-projects.git
+	url = https://github.com/SANCTUARY-Systems/Peregrine-Projects.git
