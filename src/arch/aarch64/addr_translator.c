@@ -1,9 +1,6 @@
-/*
- * Copyright 2021 Sanctuary
- * 
- * This file contains functions which perform address translations
- * between VA, IPA and PA
- */
+/* SPDX-FileCopyrightText: 2023 SANCTUARY Systems GmbH.  */
+/* SPDX-License-Identifier: BSD-3-Clause OR GPL-2.0-only */
+
 #include "pg/arch/addr_translator.h"
 #include "pg/spinlock.h"
 #include "msr.h"

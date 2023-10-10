@@ -1,6 +1,5 @@
-/*
- * Copyright 2021 Sanctuary
- */
+/* SPDX-FileCopyrightText: 2023 SANCTUARY Systems GmbH.  */
+/* SPDX-License-Identifier: BSD-3-Clause OR GPL-2.0-only */
 
 #include "../inc/pg/pma.h"
 

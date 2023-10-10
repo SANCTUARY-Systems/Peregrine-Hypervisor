@@ -1,17 +1,6 @@
-# Copyright 2018 The Hafnium Authors.
-#
-# This program is free software; you can redistribute it and/or
-# modify it under the terms of the GNU General Public License
-# version 2 as published by the Free Software Foundation.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-# GNU General Public License for more details.
-
-# By default, assume this was checked out as a submodule of the Hafnium repo
-# and that Linux was checked out along side that checkout. These paths can be
-# overridden if that assumption is incorrect.
+# SPDX-FileCopyrightText: 2018 The Hafnium Authors.
+# SPDX-FileCopyrightText: 2023 SANCTUARY Systems GmbH.
+# SPDX-License-Identifier: BSD-3-Clause OR GPL-2.0-only
 
 $(info QW)
 $(info $(HAFNIUM_PATH))

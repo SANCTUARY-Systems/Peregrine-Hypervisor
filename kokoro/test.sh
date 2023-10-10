@@ -1,10 +1,7 @@
 #!/bin/bash
-#
-# Copyright 2018 The Hafnium Authors.
-#
-# Use of this source code is governed by a BSD-style
-# license that can be found in the LICENSE file or at
-# https://opensource.org/licenses/BSD-3-Clause.
+# SPDX-FileCopyrightText: 2018 The Hafnium Authors.
+# SPDX-FileCopyrightText: 2023 SANCTUARY Systems GmbH.
+# SPDX-License-Identifier: BSD-3-Clause OR GPL-2.0-only
 
 # Note: this assumes that the images have all been built and the current working
 # directory is the root of the repo.
