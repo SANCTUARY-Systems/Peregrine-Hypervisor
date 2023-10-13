@@ -1,5 +1,5 @@
 /* SPDX-FileCopyrightText: 2023 SANCTUARY Systems GmbH.  */
-/* SPDX-License-Identifier: BSD-3-Clause OR GPL-2.0-only */
+/* SPDX-License-Identifier: GPL-2.0-only */
 
 #include <clocksource/arm_arch_timer.h>
 #include <linux/atomic.h>

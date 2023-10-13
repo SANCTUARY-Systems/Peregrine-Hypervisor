@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-FileCopyrightText: 2020 The Hafnium Authors.
 # SPDX-FileCopyrightText: 2023 SANCTUARY Systems GmbH.
-# SPDX-License-Identifier: BSD-3-Clause OR GPL-2.0-only
+# SPDX-License-Identifier: GPL-2.0-only
 
 """Script which generates a Secure Partition package.
 https://trustedfirmware-a.readthedocs.io/en/latest/components/secure-partition-manager.html#secure-partition-packages

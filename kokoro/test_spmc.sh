@@ -1,7 +1,7 @@
 #!/bin/bash
 # SPDX-FileCopyrightText: 2020 The Hafnium Authors.
 # SPDX-FileCopyrightText: 2023 SANCTUARY Systems GmbH.
-# SPDX-License-Identifier: BSD-3-Clause OR GPL-2.0-only
+# SPDX-License-Identifier: GPL-2.0-only
 
 # TIMEOUT, PROJECT, OUT, LOG_DIR_BASE set in:
 KOKORO_DIR="$(dirname "$0")"
