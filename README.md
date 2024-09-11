@@ -2,7 +2,8 @@
 
 # The Peregrine Real-Time Hypervisor
 
-Peregrine is a real-time hypervisor with a strong security focus, initially supporting aarch64 (64-bit Armv8 CPUs).
+Peregrine is a real-time hypervisor with a strong security focus, initially supporting aarch64 (64-bit Armv8 CPUs). More information on the hypervisor's properties and capabilities can found [here
+](./Peregrine.pdf)
 
 ## Building Peregrine
 This repository only contains the actual hypervisor code. For evaluation, please consider the [build repository](https://github.com/SANCTUARY-Systems/Peregrine).
